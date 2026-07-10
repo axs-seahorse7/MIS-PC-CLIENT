@@ -1,7 +1,18 @@
-import AppRoutes from "./routes/AppRoutes";
+import { useState } from 'react'
+import reactLogo from './assets/react.svg'
+import viteLogo from './assets/vite.svg'
+import heroImg from './assets/hero.png'
+
+
 
 function App() {
-  return <AppRoutes />;
+  const [count, setCount] = useState(0)
+
+  return (
+    <>
+      <div>thi sis app</div>
+    </>
+  )
 }
 
-export default App;
+export default App
