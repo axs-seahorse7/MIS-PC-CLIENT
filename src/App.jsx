@@ -1,17 +1,24 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-
-
+import { Routes, Route } from 'react-router-dom'
+import Login from './Authentication/Login/LoginForm.jsx'
+import UserLayout from './User/layout/UserLayout.jsx'
 
 function App() {
   const [count, setCount] = useState(0)
 
   return (
-    <>
-      <div>thi sis app</div>
-    </>
+    <Routes>
+      <Route path="/" element={<div>This is a Landing page....</div>} />
+      <Route path="/login" element={<Login />} />
+
+      {/* User workspace - "second floor" */}
+      <Route path="/user" element={<UserLayout userName="Himanshu" onLogout={() => {}} />}>
+        <Route path="dashboard" element={<div>Dashboard page</div>} />
+        <Route path="workspace" element={<div>Workspace page</div>} />
+        <Route path="reports" element={<div>Reports page</div>} />
+        <Route path="settings" element={<div>Settings page</div>} />
+      </Route>
+    </Routes>
   )
 }
 
