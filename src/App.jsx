@@ -6,13 +6,13 @@ import UserLayout from './User/layout/UserLayout.jsx'
 
 import AdminLayout from "./admin/layout/AdminLayout.jsx";
 
-import Dashboard from "./ADMIN/pages/Dashboard/dashboard.jsx";
-import Production from "./ADMIN/pages/Production/production.jsx";
-import Tracking from "./ADMIN/pages/Tracking/tracking.jsx";
-import Reports from "./ADMIN/pages/Reports/reports.jsx";
-import Users from "./ADMIN/pages/Users/users.jsx";
-import Masters from "./ADMIN/pages/Masters/masters.jsx";
-import Settings from "./ADMIN/pages/Settings/settings.jsx";
+import Dashboard from "./admin/pages/Dashboard/dashboard.jsx";
+import Production from "./admin/pages/Production/production.jsx";
+import Tracking from "./admin/pages/Tracking/tracking.jsx";
+import Reports from "./admin/pages/Reports/reports.jsx";
+import Users from "./admin/pages/Users/users.jsx";
+import Masters from "./admin/pages/Masters/masters.jsx";
+import Settings from "./admin/pages/Settings/settings.jsx";
 
 function App() {
   const [count, setCount] = useState(0)

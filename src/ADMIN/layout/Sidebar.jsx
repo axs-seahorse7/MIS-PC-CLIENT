@@ -20,38 +20,38 @@ const Sidebar = () => {
 
   const items = [
     {
-      key: "/ADMIN/dashboard",
+      key: "/admin/dashboard",
       icon: <DashboardOutlined />,
       label: "Dashboard",
     },
     {
-      key: "/ADMIN/production",
+      key: "/admin/production",
       icon: <AppstoreOutlined />,
       label: "Production",
     },
     {
-      key: "/ADMIN/tracking",
+      key: "/admin/tracking",
       icon: <NodeIndexOutlined />,
       label: "Tracking",
     },
     {
-      key: "/ADMIN/users",
+      key: "/admin/users",
       icon: <TeamOutlined />,
       label: "Users",
     },
     {
-      key: "/ADMIN/masters",
+      key: "/admin/masters",
       icon: <DatabaseOutlined />,
       label: "Masters",
     },
     {
     
-      key: "/ADMIN/reports",
+      key: "/admin/reports",
       icon: <FileTextOutlined />,
       label: "Reports",
     },
     {
-      key: "/ADMIN/settings",
+      key: "/admin/settings",
       icon: <SettingOutlined />,
       label: "Settings",
     },
