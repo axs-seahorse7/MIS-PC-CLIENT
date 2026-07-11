@@ -12,7 +12,10 @@ import {
 } from "@ant-design/icons";
 
 const { Header } = Layout;
-const { Text } = Typography;
+const { Text, Title } = Typography;
+
+const LOGO_URL =
+  "https://cms-complaint-avidence.s3.eu-north-1.amazonaws.com/pg-logo-Photoroom.png";
 
 export default function Navbar({ collapsed, setCollapsed, userName = "User", onLogout }) {
   const profileMenu = {
@@ -55,42 +58,37 @@ export default function Navbar({ collapsed, setCollapsed, userName = "User", onL
         zIndex: 10,
       }}
     >
-      {/* Left: collapse toggle + search */}
-      <Space size={16} align="center">
-        <div
-          onClick={() => setCollapsed(!collapsed)}
-          style={{ color: "#64748b", fontSize: 18, cursor: "pointer", display: "flex" }}
-        >
-          {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-        </div>
-        <Input
-          prefix={<SearchOutlined style={{ color: "#7c8898" }} />}
-          placeholder="Search..."
-          style={{
-            width: 260,
-            background: "#f4f6f9",
-            borderColor: "#e3e8ef",
-          }}
-        />
+      {/* Left: logo + collapse toggle + search */}
+      <Space size={20} align="center">
+        <Space size={8} align="center">
+          <img src={LOGO_URL} alt="PG logo" style={{ height: 26 }} />
+          <Title level={5} style={{ margin: 0, color: "#1b2430" }}>
+            PG MIS
+          </Title>
+        </Space>
+
+        
+        
       </Space>
 
-      {/* Right: notifications + profile */}
+      {/* Right: notifications + profile + USER tag */}
       <Space size={20} align="center">
         <Badge count={3} size="small" color="#c9820a">
           <BellOutlined style={{ fontSize: 18, color: "#8b96a8", cursor: "pointer" }} />
         </Badge>
 
-        <Dropdown menu={profileMenu} placement="bottomRight" trigger={["click"]}>
-          <Space style={{ cursor: "pointer" }}>
-            <Avatar
-              size={34}
-              style={{ background: "rgba(58,109,149,0.15)", color: "#1b2430", border: "1px solid #e3e8ef" }}
-            >
-              {userName?.charAt(0)?.toUpperCase() || "U"}
-            </Avatar>
-            <Text style={{ color: "#1b2430", fontSize: 13 }}>{userName}</Text>
-          </Space>
-        </Dropdown>
+        
+
+        <Space
+          size={6}
+          align="center"
+          style={{ paddingLeft: 14, borderLeft: "1px solid #e3e8ef" }}
+        >
+          <UserOutlined style={{ fontSize: 16, color: "#3a6d95" }} />
+          <Text strong style={{ color: "#1b2430", fontSize: 13 }}>
+            USER
+          </Text>
+        </Space>
       </Space>
     </Header>
   );

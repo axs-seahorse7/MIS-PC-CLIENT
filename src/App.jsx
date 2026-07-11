@@ -13,6 +13,9 @@ import Reports from "./ADMIN/pages/Reports/reports.jsx";
 import Users from "./ADMIN/pages/Users/users.jsx";
 import Masters from "./ADMIN/pages/Masters/masters.jsx";
 import Settings from "./ADMIN/pages/Settings/settings.jsx";
+import MiInput from "./User/pages/MiInput.jsx"
+
+// Routes ke andar, UserLayout wale <Route> ke bahar/alag:
 
 function App() {
   const [count, setCount] = useState(0)
@@ -21,10 +24,11 @@ function App() {
     <Routes>
       <Route path="/" element={<div>This is a Landing page....</div>} />
       <Route path="/login" element={<Login />} />
+      {/* <Route path="/user/mi-input" element={<MiInput />} /> */}
 
       {/* User workspace - "second floor" */}
       <Route path="/user" element={<UserLayout userName="Himanshu" onLogout={() => {}} />}>
-        <Route path="dashboard" element={<div>Dashboard page</div>} />
+        <Route path="dashboard" element={<MiInput/>} />
         <Route path="workspace" element={<div>Workspace page</div>} />
         <Route path="reports" element={<div>Reports page</div>} />
         <Route path="settings" element={<div>Settings page</div>} />
