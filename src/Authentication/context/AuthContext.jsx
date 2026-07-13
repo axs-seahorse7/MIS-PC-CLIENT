@@ -33,7 +33,7 @@ export function AuthProvider({ children }) {
     try {
       const res = await api.post("/users/login", { username, password });
       const data = res.data;
-
+      localStorage.setItem("token", data.token); 
       if (!data.success) {
         return { success: false, message: data.message || "Invalid credentials." };
       }
@@ -56,6 +56,7 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
+      localStorage.removeItem("token");
       await api.post("/users/logout"); // clears the httpOnly cookie server-side
     } catch (err) {
       // even if the request fails, still clear local state below
