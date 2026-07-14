@@ -29,24 +29,28 @@ function App() {
       {/* <Route path="/user/mi-input" element={<MiInput />} /> */}
 
       {/* User workspace - "second floor" */}
-      <Route path="/user" element={ <UserProtected> <UserLayout userName="Himanshu" onLogout={() => {}} /> </UserProtected> }>
-        <Route path="dashboard" element={<MiInput/>} />
-        <Route path="workspace" element={<div>Workspace page</div>} />
-        <Route path="reports" element={<div>Reports page</div>} />
-        <Route path="settings" element={<div>Settings page</div>} />
+      <Route  element={ <UserProtected/> }>
+        <Route path="/user" element={ <UserLayout userName="Himanshu" onLogout={() => {}} /> }>
+          <Route path="dashboard" element={<MiInput/>} />
+          <Route path="workspace" element={<div>Workspace page</div>} />
+          <Route path="reports" element={<div>Reports page</div>} />
+          <Route path="settings" element={<div>Settings page</div>} />
+        </Route>
       </Route>
    
       {/* Admin workspace */}
       
-       <Route path="/admin" element={ <AdminProtected> <AdminLayout /> </AdminProtected> }>
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="production" element={<Production />} />
-        <Route path="tracking" element={<Tracking />} />
-        <Route path="users" element={<Users />} />
-        <Route path="masters" element={<Masters />} />
-        <Route path="reports" element={<Reports />} />
-        <Route path="settings" element={<Settings />} />
-      </Route>
+       <Route  element={ <AdminProtected/>}>
+        <Route path="/admin" element={  <AdminLayout />  }>
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="production" element={<Production />} />
+          <Route path="tracking" element={<Tracking />} />
+          <Route path="users" element={<Users />} />
+          <Route path="masters" element={<Masters />} />
+          <Route path="reports" element={<Reports />} />
+          <Route path="settings" element={<Settings />} />
+        </Route>
+       </Route>
 
     </Routes>
   )

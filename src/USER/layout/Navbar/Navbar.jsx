@@ -10,6 +10,7 @@ import {
   LogoutOutlined,
   SettingOutlined,
 } from "@ant-design/icons";
+import { useAuth } from "../../../Authentication/context/AuthContext"; // adjust path if your folder depth differs
 
 const { Header } = Layout;
 const { Text, Title } = Typography;
@@ -18,6 +19,13 @@ const LOGO_URL =
   "https://cms-complaint-avidence.s3.eu-north-1.amazonaws.com/pg-logo-Photoroom.png";
 
 export default function Navbar({ collapsed, setCollapsed, userName = "User", onLogout }) {
+  // Logged-in operator's real name + assigned stage (from AuthContext,
+  // populated by your login API / admin dashboard assignment).
+  // Falls back to the `userName` prop, then "User", if not available yet.
+  const { user } = useAuth();
+  const displayName = user?.name || userName || "User";
+  const assignedStage = user?.assignedStage;
+
   const profileMenu = {
     items: [
       {
@@ -71,7 +79,7 @@ export default function Navbar({ collapsed, setCollapsed, userName = "User", onL
         
       </Space>
 
-      {/* Right: notifications + profile + USER tag */}
+      {/* Right: notifications + profile + name/stage */}
       <Space size={20} align="center">
         <Badge count={3} size="small" color="#c9820a">
           <BellOutlined style={{ fontSize: 18, color: "#8b96a8", cursor: "pointer" }} />
@@ -85,9 +93,16 @@ export default function Navbar({ collapsed, setCollapsed, userName = "User", onL
           style={{ paddingLeft: 14, borderLeft: "1px solid #e3e8ef" }}
         >
           <UserOutlined style={{ fontSize: 16, color: "#3a6d95" }} />
-          <Text strong style={{ color: "#1b2430", fontSize: 13 }}>
-            USER
-          </Text>
+          <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
+            <Text strong style={{ color: "#1b2430", fontSize: 13 }}>
+              {displayName}
+            </Text>
+            {assignedStage != null && (
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                Stage {assignedStage}
+              </Text>
+            )}
+          </div>
         </Space>
       </Space>
     </Header>
