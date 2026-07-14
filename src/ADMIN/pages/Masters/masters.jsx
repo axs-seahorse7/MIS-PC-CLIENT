@@ -1,9 +1,7 @@
+import { Outlet } from "react-router-dom";
+
 const Masters = () => {
-  return (
-    <div style={{ padding: "24px" }}>
-      <h1>Masters Page</h1>
-    </div>
-  );
+  return <Outlet />;
 };
 
 export default Masters;

@@ -13,11 +13,15 @@ import Reports from "./ADMIN/pages/Reports/reports.jsx";
 import Users from "./ADMIN/pages/Users/users.jsx";
 import Masters from "./ADMIN/pages/Masters/masters.jsx";
 import Settings from "./ADMIN/pages/Settings/settings.jsx";
-import MiInput from "./User/pages/MiInput.jsx"
-import AdminProtected from './Authentication/ProtectedRoutes/AdminProtected.jsx'
-import UserProtected from './Authentication/ProtectedRoutes/UserProtected.jsx'
 
-// Routes ke andar, UserLayout wale <Route> ke bahar/alag:
+import UserProtected from './Authentication/ProtectedRoutes/UserProtected.jsx'
+import AdminProtected from './Authentication/ProtectedRoutes/AdminProtected.jsx'
+
+import MiInput from './User/pages/miinput.jsx';
+import ManageLines from './ADMIN/pages/Masters/ManageLines.jsx';
+import ManageStages from './ADMIN/pages/Masters/ManageStages.jsx';
+import ManageModels from './ADMIN/pages/Masters/ManageModels.jsx';
+import QRMaster from './Admin/pages/Masters/ManageQRMaster.jsx';
 
 function App() {
   const [count, setCount] = useState(0)
@@ -51,6 +55,20 @@ function App() {
           <Route path="settings" element={<Settings />} />
         </Route>
        </Route>
+       <Route path="/admin" element={ <AdminProtected> <AdminLayout /> </AdminProtected> }>
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="production" element={<Production />} />
+        <Route path="tracking" element={<Tracking />} />
+        <Route path="users" element={<Users />} />
+        <Route path="masters" element={<Masters />}>
+          <Route path="lines" element={<ManageLines />} />
+          <Route path="stages" element={<ManageStages />} />
+          <Route path="models" element={<ManageModels />} />
+          <Route path="qr-master" element={<QRMaster />} />
+        </Route>
+        <Route path="reports" element={<Reports />} />
+        <Route path="settings" element={<Settings />} />
+      </Route>
 
     </Routes>
   )
