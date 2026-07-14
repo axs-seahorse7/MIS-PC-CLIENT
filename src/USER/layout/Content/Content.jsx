@@ -22,31 +22,18 @@ export default function Content() {
   return (
     <AntContent
       style={{
-        margin: "20px 24px",
-        minHeight: "calc(100vh - 60px - 40px)",
+        margin: "10px 10px",
+        minHeight: "calc(100vh - 60px - 50px)",
       }}
     >
-      <Breadcrumb
-        style={{ marginBottom: 16 }}
-        items={crumbs.map((c, i) => ({
-          title:
-            i === crumbs.length - 1 ? (
-              <span style={{ color: "#1b2430" }}>{c.title}</span>
-            ) : (
-              <Link to={c.path} style={{ color: "#64748b" }}>
-                {c.title}
-              </Link>
-            ),
-        }))}
-      />
 
       <div
         style={{
           background: "#ffffff",
           border: "1px solid #e3e8ef",
           borderRadius: 12,
-          padding: 24,
-          minHeight: 400,
+          padding: 15,
+          minHeight: 580,
         }}
       >
         {/* Nested /user/* route pages render here */}

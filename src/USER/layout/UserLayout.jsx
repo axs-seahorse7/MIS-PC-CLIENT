@@ -24,7 +24,7 @@ export default function UserLayout({ userName, onLogout }) {
 
   return (
     <Layout style={{ minHeight: "100vh", background: "#f4f6f9" }}>
-      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
+      {/* <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} /> */}
       <Layout>
         <Navbar
           collapsed={collapsed}

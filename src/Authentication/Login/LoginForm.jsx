@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext"; // adjust path if your folder depth differs
 
 /**
  * LoginForm.jsx
@@ -10,35 +12,26 @@ import React, { useState } from "react";
  *   - Allowed characters: A-Z, a-z, 0-9, hyphen (-), underscore (_)
  *   - Max length: 20 characters
  *
- * Role routing:
- *   - Backend should return the role ("admin" | "user") on
- *     successful login. The parent component / router then
- *     decides which workspace (Floor 1 - Admin / Floor 2 - User)
- *     to mount, based on onLoginSuccess(role, username).
+ * Auth is now handled entirely by AuthContext's login() function
+ * (see context/AuthContext.jsx) - it calls the backend via the
+ * shared `api` axios instance, saves the JWT + user to
+ * localStorage, and keeps every future axios call authenticated.
  *
- * Wire-up notes (for later, when you connect real APIs):
- *   Replace `mockLogin()` with your real
- *   POST /api/auth/login -> { success, role, message }
+ * After a successful login, this component redirects based on
+ * the role returned by the backend:
+ *   - "SYSTEM_ADMIN" -> /admin/dashboard
+ *   - anything else  -> /user/dashboard
  * -------------------------------------------------------------
  */
 
 const USERNAME_MAX_LEN = 20;
 const USERNAME_REGEX = /^[A-Za-z0-9_-]+$/;
+const ADMIN_ROLE = "SYSTEM_ADMIN"; // change if your backend uses a different role string
 
-// --- TEMP mock: swap this for a real fetch() call to your backend ---
-function mockLogin(username, password) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const isAdmin = username.toLowerCase().startsWith("admin");
-      resolve({
-        success: password.length >= 4,
-        role: isAdmin ? "admin" : "user",
-      });
-    }, 800);
-  });
-}
+export default function LoginForm() {
+  const navigate = useNavigate();
+  const { login } = useAuth();
 
-export default function LoginForm({ onLoginSuccess }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -75,18 +68,18 @@ export default function LoginForm({ onLoginSuccess }) {
     }
 
     setLoading(true);
-    try {
-      const res = await mockLogin(username, password);
-      if (!res.success) {
-        setError("Incorrect username or password.");
-        setLoading(false);
-        return;
-      }
-      onLoginSuccess?.(res.role, username);
-    } catch (err) {
-      setError("Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
+    const result = await login(username, password);
+    setLoading(false);
+
+    if (!result.success) {
+      setError(result.message);
+      return;
+    }
+
+    if (result.user?.role === ADMIN_ROLE) {
+      navigate("/admin/dashboard");
+    } else {
+      navigate("/user/dashboard");
     }
   };
 
