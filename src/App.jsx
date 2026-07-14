@@ -12,6 +12,10 @@ import Tracking from "./admin/pages/Tracking/tracking.jsx";
 import Reports from "./admin/pages/Reports/reports.jsx";
 import Users from "./admin/pages/Users/users.jsx";
 import Masters from "./admin/pages/Masters/masters.jsx";
+import ManageLines from "./admin/pages/Masters/ManageLines.jsx";
+import ManageStages from "./admin/pages/Masters/ManageStages.jsx";
+import ManageModels from "./admin/pages/Masters/ManageModels.jsx";
+import QRMaster from "./admin/pages/Masters/ManageQRMaster.jsx";
 import Settings from "./admin/pages/Settings/settings.jsx";
 
 function App() {
@@ -37,7 +41,12 @@ function App() {
         <Route path="production" element={<Production />} />
         <Route path="tracking" element={<Tracking />} />
         <Route path="users" element={<Users />} />
-        <Route path="masters" element={<Masters />} />
+        <Route path="masters" element={<Masters />}>
+          <Route path="lines" element={<ManageLines />} />
+          <Route path="stages" element={<ManageStages />} />
+          <Route path="models" element={<ManageModels />} />
+          <Route path="qr-master" element={<QRMaster />} />
+        </Route>
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />
       </Route>
