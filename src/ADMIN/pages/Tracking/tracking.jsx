@@ -1,7 +1,9 @@
+import {Outlet} from "react-router-dom"
+
 const Tracking = () => {
   return (
     <div style={{ padding: "24px" }}>
-      <h1>Tracking</h1>
+      <Outlet/>
     </div>
   );
 };

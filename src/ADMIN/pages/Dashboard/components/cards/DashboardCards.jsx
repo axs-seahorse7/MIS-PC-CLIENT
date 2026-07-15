@@ -1,157 +1,89 @@
-import { Card, Col, Row, Typography, Tag } from "antd";
-import {
-  Factory,
-  Activity,
-  CircleCheckBig,
-  CircleX,
-  Gauge,
-  TrendingUp,
-} from "lucide-react";
+import { Boxes, CheckCircle2, Activity, XCircle, Gauge, Target, ArrowUpRight, ArrowDownRight } from "lucide-react";
 
-const { Text, Title } = Typography;
+import { kpiData as defaultData } from "../../dashboardData";
+import { hexToRgba, getTrendColor, formatNumber } from "../../utils/dashboardHelpers";
 
-const dashboardData = [
-  {
-    title: "Today's Production",
-    value: "2,560",
-    unit: "PCB",
-    icon: Factory,
-    color: "#2563EB",
-    trend: "+8.5%",
-    bg: "#EFF6FF",
-  },
-  {
-    title: "In Progress",
-    value: "542",
-    unit: "PCB",
-    icon: Activity,
-    color: "#F59E0B",
-    trend: "+3.2%",
-    bg: "#FFF7ED",
-  },
-  {
-    title: "Completed",
-    value: "2,018",
-    unit: "PCB",
-    icon: CircleCheckBig,
-    color: "#16A34A",
-    trend: "+11%",
-    bg: "#F0FDF4",
-  },
-  {
-    title: "Rejected",
-    value: "12",
-    unit: "PCB",
-    icon: CircleX,
-    color: "#DC2626",
-    trend: "-1.1%",
-    bg: "#FEF2F2",
-  },
-  {
-    title: "Efficiency",
-    value: "98.7",
-    unit: "%",
-    icon: Gauge,
-    color: "#7C3AED",
-    trend: "+2.4%",
-    bg: "#F5F3FF",
-  },
-];
+const iconMap = { Boxes, CheckCircle2, Activity, XCircle, Gauge, Target };
 
-const DashboardCards = () => {
+const DashboardCards = ({ data = defaultData }) => {
   return (
-    <Row gutter={[20, 20]}>
-      {dashboardData.map((item, index) => {
-        const Icon = item.icon;
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+        gap: 16,
+      }}
+    >
+      <style>{`
+        .kpi-card { transition: transform .18s ease, box-shadow .18s ease; }
+        .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(15,23,42,0.08); }
+      `}</style>
+
+      {data.map((item) => {
+        const Icon = iconMap[item.icon] || Activity;
+        const trendColor = item.trendValue != null ? getTrendColor(item.isPositive) : null;
+        const TrendIcon = item.trendDirection === "down" ? ArrowDownRight : ArrowUpRight;
 
         return (
-          <Col key={index} xs={24} sm={12} md={12} lg={8} xl={4.8} flex="1">
-            <Card
-              hoverable
-              style={{
-                borderRadius: 18,
-                border: "1px solid #E2E8F0",
-                boxShadow: "0 6px 20px rgba(15,23,42,.05)",
-                height: 175,
-              }}
-              bodyStyle={{
-                padding: 22,
-                height: "100%",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-              }}
-            >
+          <div
+            key={item.id}
+            className="kpi-card"
+            style={{
+              background: "#fff",
+              border: "1px solid #E2E8F0",
+              borderRadius: 16,
+              padding: "18px 20px",
+              boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <span style={{ fontSize: 13, color: "#64748B", fontWeight: 500 }}>{item.title}</span>
               <div
                 style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 10,
+                  background: hexToRgba(item.accent, 0.12),
                   display: "flex",
-                  justifyContent: "space-between",
                   alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
                 }}
               >
-                <Text
-                  style={{
-                    color: "#64748B",
-                    fontSize: 14,
-                    fontWeight: 500,
-                  }}
-                >
-                  {item.title}
-                </Text>
-
-                <div
-                  style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 14,
-                    background: item.bg,
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                  }}
-                >
-                  <Icon color={item.color} size={24} />
-                </div>
+                <Icon size={18} color={item.accent} strokeWidth={2} />
               </div>
+            </div>
 
-              <div>
-                <Title
-                  level={2}
-                  style={{
-                    margin: "10px 0 0",
-                    color: "#0F172A",
-                  }}
-                >
-                  {item.value}
-                </Title>
+            <div style={{ marginTop: 14, display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span style={{ fontSize: 26, fontWeight: 700, color: "#0F172A" }}>
+                {formatNumber(item.value)}
+              </span>
+              <span style={{ fontSize: 12, color: "#94A3B8", fontWeight: 500 }}>{item.unit}</span>
+            </div>
 
-                <Text
-                  style={{
-                    color: "#94A3B8",
-                    fontSize: 14,
-                  }}
-                >
-                  {item.unit}
-                </Text>
-              </div>
-
-              <Tag
-                color="green"
-                icon={<TrendingUp size={13} />}
+            {item.trendValue != null && (
+              <div
                 style={{
-                  width: "fit-content",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  marginTop: 10,
+                  padding: "3px 8px",
                   borderRadius: 20,
-                  padding: "4px 10px",
-                  fontWeight: 500,
+                  background: hexToRgba(trendColor, 0.1),
+                  color: trendColor,
+                  fontSize: 12,
+                  fontWeight: 600,
                 }}
               >
-                {item.trend}
-              </Tag>
-            </Card>
-          </Col>
+                <TrendIcon size={13} />
+                {item.trendValue}%
+              </div>
+            )}
+          </div>
         );
       })}
-    </Row>
+    </div>
   );
 };
 

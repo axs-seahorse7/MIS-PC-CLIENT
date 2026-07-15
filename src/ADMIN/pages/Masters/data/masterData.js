@@ -31,3 +31,42 @@ export const qrMasterData = [
 
 export const plantOptions = ["NGM", "PGTL", "Triumph", "Vihaan", "D111"];
 export const lineTypeOptions = ["SMT", "AI", "DIP"];
+
+export const categoryData = [
+  {
+    id: 1,
+    categoryName: "PCB Assembly",
+    categoryDescription: "Surface Mount PCB Components",
+    status: "Active",
+  },
+  {
+    id: 2,
+    categoryName: "Programming",
+    categoryDescription: "Firmware Programming",
+    status: "Active",
+  },
+];
+
+export const productData = [
+  {
+    id: 1,
+    category_id: 1,
+    categoryName: "PCB Assembly",
+    name: "Outdoor PCB",
+    description: "Outdoor AC PCB",
+    remarks: "High Priority",
+    status: "Active",
+    createdDate: "15 Jul 2026",
+  },
+  {
+    id: 2,
+    category_id: 2,
+    categoryName: "Programming",
+    name: "Indoor PCB",
+    description: "Indoor AC PCB",
+    remarks: "Normal",
+    status: "Active",
+    createdDate: "15 Jul 2026",
+  },
+];
+

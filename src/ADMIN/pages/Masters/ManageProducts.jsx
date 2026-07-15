@@ -19,25 +19,25 @@ const formatCreatedDate = (dateInput) =>
     year: "numeric",
   });
 
-// Server sends/expects { categoryId, name, description, remarks } (see notes above re: categoryId vs category_id).
-// UI/form uses stageName / stageDescription for readability; categoryOptions (fetched live)
-// is used to resolve categoryId -> categoryName for display, same pattern as ManageProducts.jsx.
-const normalizeStage = (item, categoryOptions = []) => ({
+// Server sends/expects { category_id, name, description, remarks }.
+// UI/form uses productName / productDescription for readability;
+// categoryOptions (fetched live) is used to resolve categoryId -> categoryName for display.
+const normalizeProduct = (item, categoryOptions = []) => ({
   id: item._id || item.id,
-  categoryId: item.category_id ?? item.categoryId,
+  categoryId: item.category_id,
   categoryName:
     item.categoryName ||
-    categoryOptions.find((c) => c.value === (item.category_id ?? item.categoryId))?.label ||
+    categoryOptions.find((c) => c.value === item.category_id)?.label ||
     "-",
-  stageName: item.name,
-  stageDescription: item.description,
+  productName: item.name,
+  productDescription: item.description,
   remarks: item.remarks,
   status: item.status || (item.is_active === 0 ? "Inactive" : "Active"),
   createdDate: formatCreatedDate(item.created_at || item.createdAt || item.createdDate),
 });
 
-const ManageStages = () => {
-  const [stages, setStages] = useState([]);
+const ManageProducts = () => {
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [categoryOptions, setCategoryOptions] = useState([]);
@@ -63,9 +63,9 @@ const ManageStages = () => {
       setLoading(true);
       setCategoriesLoading(true);
 
-      const [categoriesRes, stagesRes] = await Promise.all([
+      const [categoriesRes, productsRes] = await Promise.all([
         api.get("/categories/all"),
-        api.get("/stages/all"), // see note: your route sample said /products/all here, assumed a copy-paste slip
+        api.get("/products/all"),
       ]);
 
 
@@ -75,23 +75,23 @@ const ManageStages = () => {
       }));
       setCategoryOptions(categoryList);
 
-      const stageList = stagesRes.data?.data || stagesRes.data || [];
-      setStages(stageList.map((item) => normalizeStage(item, categoryList)));
+      const productList = productsRes?.data?.data|| productsRes?.data || [];
+      setProducts(productList.map((item) => normalizeProduct(item, categoryList)));
     } catch (err) {
-      console.log("ERROR IN FETCH BLOCK",err);
-      message.error(err?.response?.data?.message || "Failed to load stages");
+        console.log("err in product:", err)
+      message.error(err?.response?.data?.message || "Failed to load products");
     } finally {
       setLoading(false);
       setCategoriesLoading(false);
     }
   };
 
-  const filteredData = stages.filter((item) => {
+  const filteredData = products.filter((item) => {
     const query = search.toLowerCase();
     const matchesSearch =
       item.categoryName.toLowerCase().includes(query) ||
-      item.stageName.toLowerCase().includes(query) ||
-      (item.stageDescription || "").toLowerCase().includes(query);
+      item.productName.toLowerCase().includes(query) ||
+      (item.productDescription || "").toLowerCase().includes(query);
     const matchesStatus = statusFilter === "All" || item.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -99,6 +99,7 @@ const ManageStages = () => {
   const openAddModal = () => {
     setEditingRecord(null);
     form.resetFields();
+    form.setFieldsValue({ status: "Active" });
     setFormOpen(true);
   };
 
@@ -106,9 +107,10 @@ const ManageStages = () => {
     setEditingRecord(record);
     form.setFieldsValue({
       categoryId: record.categoryId,
-      stageName: record.stageName,
-      stageDescription: record.stageDescription,
+      productName: record.productName,
+      productDescription: record.productDescription,
       remarks: record.remarks,
+      status: record.status,
     });
     setFormOpen(true);
   };
@@ -121,33 +123,31 @@ const ManageStages = () => {
       return; // validation failed, stay in modal
     }
 
-    // Sent as categoryId (camelCase) to match your route sample literally.
-    // Change to category_id if your controller actually destructures the snake_case DB column name.
     const payload = {
       categoryId: values.categoryId,
-      name: values.stageName,
-      description: values.stageDescription,
+      name: values.productName,
+      description: values.productDescription,
       remarks: values.remarks,
+      status: values.status,
     };
 
     try {
       setSaving(true);
       const res = editingRecord
-        ? await api.put(`/stages/update/${editingRecord.id}`, payload)
-        : await api.post("/stages/create", payload);
+        ? await api.put(`/products/update/${editingRecord.id}`, payload)
+        : await api.post("/products/create", payload);
 
-      const saved = normalizeStage(res.data?.data || res.data, categoryOptions);
-    
-      setStages((prev) =>
+      const saved = normalizeProduct(res.data?.data || res.data, categoryOptions);
+
+      setProducts((prev) =>
         editingRecord
           ? prev.map((item) => (item.id === editingRecord.id ? saved : item))
           : [...prev, saved]
       );
-      message.success(editingRecord ? "Stage updated" : "Stage created");
+      message.success(editingRecord ? "Product updated" : "Product created");
       setFormOpen(false);
     } catch (err) {
-      console.log("ERROR IN HANDLE SUBMIT",err);
-      message.error(err?.response?.data?.message || "Failed to save stage");
+      message.error(err?.response?.data?.message || "Failed to save product");
     } finally {
       setSaving(false);
     }
@@ -156,22 +156,22 @@ const ManageStages = () => {
   const handleDelete = async () => {
     try {
       setDeleting(true);
-      await api.delete(`/stages/delete/${deleteTarget.id}`);
-      setStages((prev) => prev.filter((item) => item.id !== deleteTarget.id));
-      message.success("Stage deleted");
+      await api.delete(`/product/delete/${deleteTarget.id}`);
+      setProducts((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      message.success("Product deleted");
       setDeleteTarget(null);
     } catch (err) {
-      message.error(err?.response?.data?.message || "Failed to delete stage");
+      message.error(err?.response?.data?.message || "Failed to delete product");
     } finally {
       setDeleting(false);
     }
   };
 
-  // No manual Serial No column — MasterTable already renders its own S.No column.
+  // Note: no manual Serial No column here — MasterTable already renders its own S.No column.
   const columns = [
     { title: "Category", dataIndex: "categoryName", key: "categoryName" },
-    { title: "Stage Name", dataIndex: "stageName", key: "stageName" },
-    { title: "Description", dataIndex: "stageDescription", key: "stageDescription", ellipsis: true },
+    { title: "Product Name", dataIndex: "productName", key: "productName" },
+    { title: "Description", dataIndex: "productDescription", key: "productDescription", ellipsis: true },
     { title: "Remarks", dataIndex: "remarks", key: "remarks", ellipsis: true },
     { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
     { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
@@ -181,9 +181,9 @@ const ManageStages = () => {
     <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius: 16, overflow: "hidden" }}>
       <div style={{ padding: "20px 20px 0" }}>
         <MasterHeader
-          title="Manage Stages"
-          description="Manage manufacturing stages linked to categories"
-          buttonLabel="Add Stage"
+          title="Manage Products"
+          description="Manage products used across masters"
+          buttonLabel="Add Product"
           onAddClick={openAddModal}
         />
       </div>
@@ -191,7 +191,7 @@ const ManageStages = () => {
       <MasterToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by category, stage name or description..."
+        searchPlaceholder="Search by category, product name or description..."
         statusValue={statusFilter}
         onStatusChange={setStatusFilter}
       />
@@ -206,7 +206,7 @@ const ManageStages = () => {
 
       <MasterFormModal
         open={formOpen}
-        title={editingRecord ? "Edit Stage" : "Add Stage"}
+        title={editingRecord ? "Edit Product" : "Add Product"}
         onCancel={() => setFormOpen(false)}
         onSubmit={handleSubmit}
         confirmLoading={saving}
@@ -231,29 +231,49 @@ const ManageStages = () => {
             </Col>
             <Col span={12}>
               <Form.Item
-                name="stageName"
-                label="Stage Name"
-                rules={[{ required: true, message: "Please enter stage name" }]}
+                name="productName"
+                label="Product Name"
+                rules={[{ required: true, message: "Please enter product name" }]}
                 style={{ marginBottom: 16 }}
               >
-                <Input placeholder="e.g. PCB Soldering" />
+                <Input placeholder="e.g. Outdoor PCB" />
               </Form.Item>
             </Col>
           </Row>
 
-          <Form.Item name="stageDescription" label="Stage Description" style={{ marginBottom: 16 }}>
-            <TextArea rows={2} placeholder="Short description of the stage" />
+          <Form.Item name="productDescription" label="Product Description" style={{ marginBottom: 16 }}>
+            <TextArea rows={2} placeholder="Short description of the product" />
           </Form.Item>
 
-          <Form.Item name="remarks" label="Remarks" style={{ marginBottom: 0 }}>
-            <TextArea rows={2} placeholder="Optional remarks" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="remarks" label="Remarks" style={{ marginBottom: 0 }}>
+                <TextArea rows={2} placeholder="Optional remarks" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="status"
+                label="Status"
+                rules={[{ required: true, message: "Select status" }]}
+                style={{ marginBottom: 0 }}
+              >
+                <Select
+                  placeholder="Select status"
+                  options={[
+                    { value: "Active", label: "Active" },
+                    { value: "Inactive", label: "Inactive" },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </MasterFormModal>
 
       <DeleteModal
         open={!!deleteTarget}
-        itemName={deleteTarget?.stageName}
+        itemName={deleteTarget?.productName}
         loading={deleting}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
@@ -262,4 +282,4 @@ const ManageStages = () => {
   );
 };
 
-export default ManageStages;
+export default ManageProducts;
