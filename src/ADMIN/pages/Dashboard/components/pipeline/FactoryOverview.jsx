@@ -94,7 +94,7 @@ const FactoryOverview = ({ data = defaultData }) => {
               percent={stat.value}
               showInfo={false}
               strokeColor={getProgressColor(stat.value)}
-              trailColor="#F1F5F9"
+              railColor="#F1F5F9"
               size="small"
             />
           </div>

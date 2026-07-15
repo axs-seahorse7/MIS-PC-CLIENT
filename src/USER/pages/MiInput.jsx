@@ -14,29 +14,26 @@
 //      - Bottom: PLAN / PROD / TODAY DONE / DONE% stat cards
 //
 // NOTE: Frontend only, as requested.
-//   - Action bar now shows the module tab buttons (SM ICT, ICT REQD,
-//     FCT REQD, SM FCT, FT REQD, SM FT, CUST SFN, PS11400, FIND SFN)
-//     instead of the scan barcode input. No onClick logic wired yet -
-//     tell me what each button should do and I'll hook it up.
-//   - "WIP Bar Code" field (inside the form) still has a scan icon
-//     button -> wire this up later to your QR scanner / hardware
-//     input, then call handleScanResult(code) to populate the rest
-//     of the fields from your API response.
+//   - "WIP Bar Code" field has a scan icon button -> wire this up
+//     later to your QR scanner / hardware input, then call
+//     handleScanResult(code) to populate the rest of the fields
+//     from your API response.
 //   - Save button -> hook up your real save API in handleSave().
 //
-//   - Data flow (IMPORTANT for backend hookup):
-//     All numbers shown on screen (Plan Qty, Done Qty, Today Done,
-//     Done %) are now DERIVED from `form` state only - nothing is a
-//     separately hardcoded literal anymore. So the moment `fetchEntryData()`
-//     below is pointed at your real API, every card/field on this page
-//     will update correctly with zero further edits.
-//   - `fetchEntryData()` and `fetchStageStatus()` are stubbed with a
-//     TODO and are NOT called anywhere yet (kept frontend-only, as
-//     asked). Wire the `useEffect` at the bottom of the component when
-//     the backend is ready.
+//   - ROLE-BASED STAGE ASSIGNMENT (added):
+//     Each operator is assigned exactly ONE stage by the admin
+//     dashboard (a separate app your other developer is building).
+//     ALL stages still show here with the same working/visuals, but
+//     this operator can only successfully scan their own assigned
+//     stage - scanning any other stage is rejected as INVALID.
+//     See `assignedStageIndex` below - it reads `user.assignedStage`
+//     from AuthContext (1-indexed stage number, e.g. 1 = "GROUPING OF
+//     PCB"). A hardcoded fallback is used only because there's no
+//     backend connected yet - remove the fallback once the admin
+//     dashboard + login API actually send `assignedStage`.
 // -------------------------------------------------------------
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Button,
   Input,
@@ -48,6 +45,8 @@ import {
   Col,
   Space,
   Typography,
+  Modal,
+  message,
 } from "antd";
 import {
   ScanOutlined,
@@ -58,6 +57,7 @@ import {
   CheckCircleFilled,
   CloseCircleFilled,
 } from "@ant-design/icons";
+import { useAuth } from "../../Authentication/context/AuthContext";    // adjust path if your folder depth differs
 
 const { Text, Title } = Typography;
 
@@ -73,19 +73,6 @@ const STAGES = [
   "PROGRAMMING STAGE",
   "FCT STAGE",
   "OUTPUT STAGE",
-];
-
-// Action-bar module tabs
-const MODULE_TABS = [
-  "SM ICT",
-  "ICT REQD",
-  "FCT REQD",
-  "SM FCT",
-  "FT REQD",
-  "SM FT",
-  "CUST SFN",
-  "PS11400",
-  "FIND SFN",
 ];
 
 // Status -> Tag color map
@@ -107,72 +94,206 @@ export default function MIInput() {
   const [mode, setMode] = useState("view"); // "view" | "new" | "edit"
   const [status, setStatus] = useState("SAVED/ACCEPTED");
 
+  // ---- Logged-in operator's assigned stage (from admin dashboard) ----
+  const { user } = useAuth();
+
+  // `user.assignedStage` is expected to be a 1-indexed stage number
+  // (1 = STAGES[0], 2 = STAGES[1], etc.) coming from the login/auth API
+  // once the admin dashboard assigns it. Falls back to stage 1 ONLY for
+  // frontend testing since there's no backend connected yet - remove
+  // the `?? 1` fallback once `user.assignedStage` is really populated.
+  const assignedStageIndex = (user?.assignedStage ?? 1) - 1;
+
   // ---- Scanning stage tracker state (frontend-only simulation) ----
   // stageStatus[i]: "pending" | "done" | "error"
   const [stageStatus, setStageStatus] = useState(Array(STAGES.length).fill("pending"));
-  // indices currently in their 2s blink window
-  const [blinkSet, setBlinkSet] = useState([]);
+  // indices currently in their instant "flash" tick (JS-driven, not CSS)
+  const [flashIndices, setFlashIndices] = useState(new Set());
   // index of the last stage that was confirmed IN correct sequence order
   const [lastConfirmed, setLastConfirmed] = useState(-1);
 
+  // system-generated identifiers - created automatically on the very
+  // first successful scan of a fresh entry (mirrors what your backend
+  // will eventually generate and link server-side)
+  const [groupId, setGroupId] = useState(null);
+  const [serialNo, setSerialNo] = useState(null);
+
+  // "missing stage" popup state
+  const [missingModalOpen, setMissingModalOpen] = useState(false);
+  const [missingStages, setMissingStages] = useState([]); // [{ index, label }]
+
+  // Flashes a single tile ON/OFF a fixed number of times, then resolves.
+  // This gives an EXACT blink count (unlike a looping CSS animation),
+  // which is what lets us do "blink once" vs "blink twice" reliably.
+  const flashTile = (index, times) => {
+    return new Promise((resolve) => {
+      let toggles = 0;
+      const totalToggles = times * 2; // each blink = 1 "on" + 1 "off"
+      const timer = setInterval(() => {
+        setFlashIndices((prev) => {
+          const next = new Set(prev);
+          if (next.has(index)) next.delete(index);
+          else next.add(index);
+          return next;
+        });
+        toggles += 1;
+        if (toggles >= totalToggles) {
+          clearInterval(timer);
+          setFlashIndices((prev) => {
+            const next = new Set(prev);
+            next.delete(index);
+            return next;
+          });
+          resolve();
+        }
+      }, 220);
+    });
+  };
+
+  // The confirm animation for a successful, in-sequence scan reaching
+  // `newIndex`:
+  //   1. every already-completed stage before it blinks ONCE together
+  //   2. then the just-scanned stage blinks TWICE
+  //   3. then everything settles to solid blue
+  const playConfirmAnimation = async (newIndex) => {
+    const priorRange = Array.from({ length: newIndex }, (_, k) => k);
+    if (priorRange.length) {
+      await Promise.all(priorRange.map((idx) => flashTile(idx, 1)));
+    }
+    await flashTile(newIndex, 2);
+  };
+
   // ---- This function represents a SCAN EVENT coming from the scanner/backend ----
-  // Wire it up to your real scan source, e.g.:
-  //   - a hardware barcode/QR scanner acting as a keyboard, or
-  //   - a WebSocket/socket.io message from your backend: socket.on("stageScanned",
-  //     (stageIndex) => handleStageScanned(stageIndex))
+  // Do NOT call this from a click handler in production. Wire it up to your
+  // real scan source instead (hardware scanner acting as a keyboard, or a
+  // WebSocket/backend event once the ERP code -> stage lookup exists there).
   //
   // Rules:
-  //  1. Scanning the next expected stage in sequence -> success (all
-  //     confirmed stages so far blink blue for 2s, then stay solid blue).
-  //  2. Scanning a stage further ahead (one got skipped) -> the skipped
-  //     stage(s) AND this stage turn red (error).
-  //  3. Scanning a stage that is currently red -> fixes just that stage
-  //     (turns it blue / accepted).
-  //  4. Anything else (e.g. the same stage scanned again after being done)
-  //     is ignored - it does not count as a scan.
-  const handleStageScanned = (index) => {
+  //  0. Scanning a stage that ISN'T this operator's assigned stage ->
+  //     INVALID, rejected with an error toast, no state change.
+  //  1. Scanning an already-completed stage again -> DUPLICATE, rejected
+  //     with a warning toast, no state change.
+  //  2. Scanning the next expected stage in sequence -> success. Group ID
+  //     + Serial No are generated on the very first scan of a fresh entry.
+  //     Confirm animation plays (see playConfirmAnimation above).
+  //  3. Scanning a stage further ahead (one or more got skipped) -> the
+  //     skipped stage(s) AND this stage turn red (error), and a popup
+  //     tells the operator exactly which stage(s) are missing.
+  //  4. Scanning a stage that is currently red (error) -> fixes just that
+  //     one stage (accepted / turns blue).
+  const handleStageScanned = async (index) => {
+    // 0. this operator is only assigned ONE stage - block everything else
+    if (index !== assignedStageIndex) {
+      message.error(
+        `Invalid: "${STAGES[index]}" is not your assigned stage. You are assigned to "${STAGES[assignedStageIndex]}".`
+      );
+      return;
+    }
+
     const expectedNext = lastConfirmed + 1;
 
+    // 1. duplicate scan
+    if (stageStatus[index] === "done") {
+      message.warning(`Duplicate scan: "${STAGES[index]}" is already completed.`);
+      return;
+    }
+
+    // 4. fixing a previously flagged/missing stage
     if (stageStatus[index] === "error") {
-      // fixing a previously missed/flagged stage
       setStageStatus((prev) => {
         const next = [...prev];
         next[index] = "done";
         return next;
       });
-      setBlinkSet([index]);
-      setTimeout(() => setBlinkSet([]), 2000);
       if (index > lastConfirmed) setLastConfirmed(index);
+      await flashTile(index, 2);
       return;
     }
 
+    // 2. correct, in-sequence scan
     if (index === expectedNext) {
-      const doneRange = Array.from({ length: index + 1 }, (_, i) => i);
+      if (lastConfirmed === -1) {
+        // first scan of this entry -> system generates Group ID + Serial No
+        setGroupId(`GRP-${Date.now().toString().slice(-6)}`);
+        setSerialNo(form.wipBarCode || "—");
+      }
       setStageStatus((prev) => {
         const next = [...prev];
-        doneRange.forEach((i) => (next[i] = "done"));
+        next[index] = "done";
         return next;
       });
       setLastConfirmed(index);
-      setBlinkSet(doneRange);
-      setTimeout(() => setBlinkSet([]), 2000);
+      await playConfirmAnimation(index);
       return;
     }
 
+    // 3. sequence broken - one or more stages skipped
     if (index > expectedNext) {
-      const skippedRange = [];
-      for (let i = expectedNext; i <= index; i++) skippedRange.push(i);
+      const missing = [];
+      for (let i = expectedNext; i < index; i++) {
+        missing.push({ index: i, label: STAGES[i] });
+      }
       setStageStatus((prev) => {
         const next = [...prev];
-        skippedRange.forEach((i) => (next[i] = "error"));
+        for (let i = expectedNext; i <= index; i++) next[i] = "error";
         return next;
       });
       setLastConfirmed(index);
+      setMissingStages(missing);
+      setMissingModalOpen(true);
       return;
     }
-
-    // already-done stage scanned again -> not a valid scan, ignore
   };
+
+  // The WIP Bar Code field (in the form, below) is the single scan
+  // target. Pressing Enter there (which a real scanner does automatically
+  // after typing/scanning the code) resolves which stage it belongs to
+  // and advances the stage tracker.
+  const wipCodeRef = useRef(null);
+
+  useEffect(() => {
+    wipCodeRef.current?.focus();
+  }, []);
+
+  // TEMP convention for frontend testing: the last 1-2 digits of the
+  // scanned ERP code are treated as the stage number (e.g. a code ending
+  // in "...04" -> Stage 4). Once your backend can resolve an ERP code to
+  // its real stage (and generate/validate the Group ID), replace this
+  // with that lookup instead.
+  const resolveStageFromCode = (code) => {
+    const match = code.trim().match(/(\d{1,2})$/);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n >= 1 && n <= STAGES.length) return n - 1;
+    }
+    return lastConfirmed + 1; // fallback: assume the next expected stage
+  };
+
+  const handleWipCodeScanned = () => {
+    const code = form.wipBarCode.trim();
+    if (!code) return;
+    handleStageScanned(resolveStageFromCode(code));
+
+    // Highlight the just-scanned code so the NEXT scan (which just types
+    // fresh characters, like any hardware scanner does) automatically
+    // overwrites it instead of appending after it. The field still shows
+    // this code on screen until that next scan happens.
+    setTimeout(() => wipCodeRef.current?.select(), 50);
+  };
+
+  // Module quick-access buttons (left side of action bar)
+  const MODULE_BUTTONS = [
+    "SM-ICT",
+    "ICT REQD",
+    "FCT REQD",
+    "SM FCT",
+    "FT REQD",
+    "SM FT",
+    "CUST SFN",
+    "PS11400",
+    "FIND SFN",
+  ];
+  const [activeModule, setActiveModule] = useState(MODULE_BUTTONS[0]);
 
   const [form, setForm] = useState({
     entryNo: "6A",
@@ -187,7 +308,6 @@ export default function MIInput() {
     productName: "70020206:IDU PCB CVTE INV 12K & 18K REV_01 (S.KFNSI)",
     planQty: 5000,
     doneQty: 2055,
-    todayDone: 130,
   });
 
   const isEditable = mode === "new" || mode === "edit";
@@ -195,12 +315,6 @@ export default function MIInput() {
   const updateField = (key) => (e) => {
     const value = e?.target ? e.target.value : e;
     setForm((f) => ({ ...f, [key]: value }));
-  };
-
-  // TODO: hook up real QR/barcode scanner -> call this with the scanned code
-  const handleScanResult = (code) => {
-    setForm((f) => ({ ...f, wipBarCode: code }));
-    // then fetch item details from your API and setForm(...) with the response
   };
 
   const handleNew = () => {
@@ -217,31 +331,7 @@ export default function MIInput() {
     setMode("view");
   };
 
-  // TODO: replace with real API call, e.g.:
-  //   const res = await fetch(`/api/mi-input/${entryId}`);
-  //   const data = await res.json();
-  //   setForm(data);
-  // Then call this inside a useEffect on mount / on entryId change.
-  const fetchEntryData = async () => {
-    // stub only - not called anywhere yet, kept frontend-only for now
-  };
-
-  // TODO: replace with real API call to get which stages are already
-  // scanned for this entry (so the left-rail tracker doesn't reset on
-  // every page refresh), e.g.:
-  //   const res = await fetch(`/api/mi-input/${entryId}/stages`);
-  //   const data = await res.json(); // { stageStatus: [...], lastConfirmed: n }
-  //   setStageStatus(data.stageStatus);
-  //   setLastConfirmed(data.lastConfirmed);
-  const fetchStageStatus = async () => {
-    // stub only - not called anywhere yet, kept frontend-only for now
-  };
-
-  // All figures below are derived from `form` state, NOT hardcoded
-  // literals - so wiring fetchEntryData() to a real API is enough to
-  // make every stat card / field on this page reflect real data.
-  const todayDonePercent =
-    form.planQty > 0 ? ((form.doneQty / form.planQty) * 100).toFixed(1) : "0.0";
+  const todayDonePercent = ((2055 / 5000) * 100).toFixed(1);
 
   return (
     <div
@@ -266,10 +356,16 @@ export default function MIInput() {
           padding: "0 20px",
         }}
       >
-        <Space size={6} wrap>
-          {MODULE_TABS.map((label) => (
-            <Button key={label} size="small">
-              {label}
+        <Space size={6} wrap={false}>
+          {MODULE_BUTTONS.map((item) => (
+            <Button
+              key={item}
+              size="small"
+              type={activeModule === item ? "primary" : "default"}
+              onClick={() => setActiveModule(item)}
+              style={{ fontSize: 11 }}
+            >
+              {item}
             </Button>
           ))}
         </Space>
@@ -310,8 +406,50 @@ export default function MIInput() {
             STATUS
           </Text>
           <Tag color={STATUS_COLOR[status] || "default"}>{status}</Tag>
+
+          {groupId && (
+            <>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                GROUP ID
+              </Text>
+              <Tag color="blue">{groupId}</Tag>
+            </>
+          )}
+
+          {serialNo && (
+            <>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                SERIAL NO
+              </Text>
+              <Tag color="purple">{serialNo}</Tag>
+            </>
+          )}
         </Space>
       </div>
+
+      {/* ---------- MISSING STAGE POPUP ---------- */}
+      <Modal
+        open={missingModalOpen}
+        onOk={() => setMissingModalOpen(false)}
+        onCancel={() => setMissingModalOpen(false)}
+        title="⚠️ Missing Stage Detected"
+        okText="OK"
+        cancelButtonProps={{ style: { display: "none" } }}
+      >
+        <p style={{ marginBottom: 8 }}>
+          The sequence was broken. The following stage(s) were not scanned:
+        </p>
+        <ul style={{ marginBottom: 0 }}>
+          {missingStages.map((s) => (
+            <li key={s.index}>
+              Stage {s.index + 1}: <strong>{s.label}</strong>
+            </li>
+          ))}
+        </ul>
+        <p style={{ marginTop: 12, marginBottom: 0, color: "#64748b", fontSize: 12.5 }}>
+          Please scan the missing stage(s) - they're marked red on the left rail.
+        </p>
+      </Modal>
 
       {/* ---------- BODY (fills remaining height, no scroll) ---------- */}
       <div style={{ flex: 1, display: "flex", padding: 14, gap: 14, minHeight: 0 }}>
@@ -326,41 +464,43 @@ export default function MIInput() {
             padding: 8,
             display: "flex",
             flexDirection: "column",
-            overflowY: "auto",
           }}
         >
-          <style>{`
-            @keyframes stageBlinkBlue {
-              0%, 100% { background: #3a6d95; border-color: #3a6d95; }
-              50% { background: #bcd3e6; border-color: #3a6d95; }
-            }
-            .stage-tile-blink {
-              animation: stageBlinkBlue 0.5s ease-in-out infinite;
-            }
-          `}</style>
-
           <Space direction="vertical" size={6} style={{ width: "100%", flex: 1 }}>
             {STAGES.map((label, index) => {
               const st = stageStatus[index];
-              const isBlinking = blinkSet.includes(index);
+              const isFlashing = flashIndices.has(index);
 
+              // Default (non-flashing) look:
+              //   - pending -> plain white, shows the stage number
+              //   - done    -> plain white/neutral, shows a blue checkmark
+              //                (the blue FILL only appears temporarily
+              //                during the flash, not permanently after)
+              //   - error   -> stays solid red (permanent, needs fixing)
               let bg = "#ffffff";
               let border = "#e3e8ef";
               let color = "#1b2430";
-              if (st === "done") {
-                bg = "#3a6d95";
-                border = "#3a6d95";
-                color = "#ffffff";
-              } else if (st === "error") {
+              let iconColor = "#3a6d95";
+
+              if (st === "error") {
                 bg = "#d1483c";
                 border = "#d1483c";
                 color = "#ffffff";
+              } else if (st === "done") {
+                border = "#3a6d95";
+              }
+
+              if (isFlashing) {
+                // temporary blue flash - only visible during the blink itself
+                bg = "#3a6d95";
+                border = "#3a6d95";
+                color = "#ffffff";
+                iconColor = "#ffffff";
               }
 
               return (
                 <div
                   key={label}
-                  className={isBlinking ? "stage-tile-blink" : undefined}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -368,7 +508,7 @@ export default function MIInput() {
                     padding: "6px 8px",
                     borderRadius: 6,
                     border: `1px solid ${border}`,
-                    background: isBlinking ? undefined : bg,
+                    background: bg,
                     color,
                     fontSize: 10.5,
                     fontWeight: 600,
@@ -382,7 +522,7 @@ export default function MIInput() {
                       width: 16,
                       height: 16,
                       borderRadius: "50%",
-                      background: "rgba(255,255,255,0.25)",
+                      background: isFlashing ? "rgba(255,255,255,0.25)" : "transparent",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -390,9 +530,9 @@ export default function MIInput() {
                     }}
                   >
                     {st === "done" ? (
-                      <CheckCircleFilled style={{ fontSize: 11 }} />
+                      <CheckCircleFilled style={{ fontSize: 12, color: isFlashing ? "#ffffff" : iconColor }} />
                     ) : st === "error" ? (
-                      <CloseCircleFilled style={{ fontSize: 11 }} />
+                      <CloseCircleFilled style={{ fontSize: 12 }} />
                     ) : (
                       index + 1
                     )}
@@ -414,16 +554,16 @@ export default function MIInput() {
             minHeight: 0,
           }}
         >
-          {/* Stats row - frozen at top, does not scroll away, fixed compact height */}
-          <Row gutter={14} style={{ flexShrink: 0, height: 100, position: "sticky", top: 0, zIndex: 1 }}>
+          {/* Stats row - frozen at top, fixed compact height */}
+          <Row gutter={14} style={{ flexShrink: 0, height: 100 }}>
             <StatCard title="PLAN" value={form.planQty} color="#3a6d95" />
             <StatCard title="PROD" value={form.doneQty} color="#c9820a" />
-            <StatCard title="TODAY DONE" value={form.todayDone} color="#0f9a90" />
+            <StatCard title="TODAY DONE" value={130} color="#0f9a90" />
             <StatCard title="DONE %" value={`${todayDonePercent}%`} color="#d1483c" />
           </Row>
- 
+
           <Card
-            styles={{ body: { padding: 18, height: "100%", overflowY: "auto" } }}
+            styles={{ body: { padding: 18 } }}
             style={{ border: "1px solid #e3e8ef", borderRadius: 10, flex: 1, minHeight: 0, overflow: "hidden" }}
           >
             <Row gutter={[16, 14]}>
@@ -444,16 +584,13 @@ export default function MIInput() {
               <Col span={8}>
                 <FieldLabel text="WIP Bar Code" />
                 <Input
+                  ref={wipCodeRef}
                   placeholder="Scan QR / enter code"
                   value={form.wipBarCode}
-                  disabled={!isEditable}
                   onChange={updateField("wipBarCode")}
-                  suffix={
-                    <ScanOutlined
-                      style={{ color: "#3a6d95", cursor: isEditable ? "pointer" : "not-allowed" }}
-                      onClick={() => isEditable && handleScanResult(form.wipBarCode)}
-                    />
-                  }
+                  onPressEnter={handleWipCodeScanned}
+                  onBlur={() => setTimeout(() => wipCodeRef.current?.focus(), 50)}
+                  suffix={<ScanOutlined style={{ color: "#3a6d95" }} />}
                 />
               </Col>
 

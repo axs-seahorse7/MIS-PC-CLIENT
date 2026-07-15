@@ -1,68 +1,80 @@
-import { useState } from 'react'
-import { Routes, Route } from 'react-router-dom'
-import Login from './Authentication/Login/LoginForm.jsx'
-import UserLayout from './User/layout/UserLayout.jsx'
+import { Routes, Route } from "react-router-dom";
 
+import Login from "./Authentication/Login/LoginForm.jsx";
 
-import AdminLayout from "./admin/layout/AdminLayout.jsx";
+import UserProtected from "./Authentication/ProtectedRoutes/UserProtected.jsx";
+import AdminProtected from "./Authentication/ProtectedRoutes/AdminProtected.jsx";
+
+import UserLayout from "./User/layout/UserLayout.jsx";
+import MiInput from "./User/pages/miinput.jsx";
+
+import AdminLayout from "./ADMIN/layout/AdminLayout.jsx";
 
 import Dashboard from "./ADMIN/pages/Dashboard/dashboard.jsx";
 import Production from "./ADMIN/pages/Production/production.jsx";
 import Tracking from "./ADMIN/pages/Tracking/tracking.jsx";
-import Reports from "./ADMIN/pages/Reports/reports.jsx";
+import ProductStage from "./ADMIN/pages/Tracking/ProductStage.jsx";
+import ScanStage from "./ADMIN/pages/Tracking/ScanStage.jsx";
+import ScanHistory from "./ADMIN/pages/Tracking/ScanHistory.jsx";
+
 import Users from "./ADMIN/pages/Users/users.jsx";
+
 import Masters from "./ADMIN/pages/Masters/masters.jsx";
+import ManageLines from "./ADMIN/pages/Masters/ManageLines.jsx";
+import ManageStages from "./ADMIN/pages/Masters/ManageStages.jsx";
+import ManageModels from "./ADMIN/pages/Masters/ManageModels.jsx";
+import QRMaster from "./ADMIN/pages/Masters/ManageQRMaster.jsx";
+import ManageCategories from "./ADMIN/pages/Masters/ManageCategories.jsx";
+import ManageProducts from "./ADMIN/pages/Masters/ManageProducts.jsx";
+import ManagepdFields from "./ADMIN/pages/Masters/ManagepdFields.jsx";
+import ManageItems from "./ADMIN/pages/Masters/ManageItems.jsx";
+import ManageItemFields from "./ADMIN/pages/Masters/ManageItemFields.jsx";
+
+import Reports from "./ADMIN/pages/Reports/reports.jsx";
 import Settings from "./ADMIN/pages/Settings/settings.jsx";
 
-import UserProtected from './Authentication/ProtectedRoutes/UserProtected.jsx';
-import MiInput from "./user/pages/MiInput.jsx"
-import AdminProtected from "./Authentication/ProtectedRoutes/AdminProtected.jsx"
-import ManageLines from "./admin/pages/Masters/ManageLines.jsx"
-import ManageStages from "./admin/pages/Masters/ManageStages.jsx"
-import QRMaster from "./admin/pages/Masters/ManageQRMaster.jsx"
-import ManageModels from "./admin/pages/Masters/ManageModels.jsx"
-import ManageCategories from "./admin/pages/Masters/ManageCategories";
-import ManageProducts from "./admin/pages/Masters/ManageProducts";
-import ProductStage from "./admin/pages/Tracking/ProductStage.jsx";
-import ScanStage from "./admin/pages/Tracking/ScanStage.jsx";
-import ManagepdFields from "./admin/pages/Masters/ManagePdFields.jsx"
-import ManageItems from "./admin/pages/Masters/ManageItems.jsx"
-import ManageItemFields from "./admin/pages/Masters/ManageItemFields.jsx"
-import ScanHistory from "./admin/pages/Tracking/ScanHistory.jsx"
-
-
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
     <Routes>
-      <Route path="/" element={<div>This is a Landing page....</div>} />
+
+      {/* Landing */}
+      <Route path="/" element={<div>This is Landing Page...</div>} />
+
+      {/* Login */}
       <Route path="/login" element={<Login />} />
-      {/* <Route path="/user/mi-input" element={<MiInput />} /> */}
 
-      {/* User workspace - "second floor" */}
-      <Route path="/user" element={ <UserProtected> <UserLayout userName="Himanshu" onLogout={() => {}} /> </UserProtected> }>
-        <Route path="dashboard" element={<MiInput/>} />
-        <Route path="workspace" element={<div>Workspace page</div>} />
-        <Route path="reports" element={<div>Reports page</div>} />
-        <Route path="settings" element={<div>Settings page</div>} />
+      {/* ================= USER ================= */}
+
+      <Route element={<UserProtected />}>
+        <Route
+          path="/user"
+          element={<UserLayout userName="Himanshu" onLogout={() => {}} />}
+        >
+          <Route path="dashboard" element={<MiInput />} />
+          <Route path="workspace" element={<div>Workspace</div>} />
+          <Route path="reports" element={<div>User Reports</div>} />
+          <Route path="settings" element={<div>User Settings</div>} />
+        </Route>
       </Route>
-   
-      {/* Admin workspace */}
-      
-       <Route element={ <AdminProtected/> }>
 
-        <Route path="/admin" element={ <AdminLayout /> }>
+      {/* ================= ADMIN ================= */}
+
+      <Route element={<AdminProtected />}>
+        <Route path="/admin" element={<AdminLayout />}>
+
+          {/* Dashboard */}
           <Route path="dashboard" element={<Dashboard />} />
+          {/* Production */}
           <Route path="production" element={<Production />} />
+          {/* Tracking */}
           <Route path="tracking" element={<Tracking />}>
-           <Route path="product-stage" element={<ProductStage />} />
-           <Route path="scan-stage" element={<ScanStage />} />
-           <Route path="scan-history" element={<ScanHistory />} />
-          </Route> 
-           <Route path="users" element={<Users />} />
-          
-
+            <Route path="product-stage" element={<ProductStage />} />
+            <Route path="scan-stage" element={<ScanStage />} />
+            <Route path="scan-history" element={<ScanHistory />} />
+          </Route>
+          {/* Users */}
+          <Route path="users" element={<Users />} />
+          {/* Masters */}
           <Route path="masters" element={<Masters />}>
             <Route path="lines" element={<ManageLines />} />
             <Route path="stages" element={<ManageStages />} />
@@ -70,19 +82,20 @@ function App() {
             <Route path="qr-master" element={<QRMaster />} />
             <Route path="categories" element={<ManageCategories />} />
             <Route path="products" element={<ManageProducts />} />
-            <Route path="pd-fields" element={<ManagepdFields/>} />
-            <Route path="items" element={<ManageItems/>} />
-            <Route path="item-fields" element={<ManageItemFields/>} />
-            
+            <Route path="pd-fields" element={<ManagepdFields />} />
+            <Route path="items" element={<ManageItems />} />
+            <Route path="item-fields" element={<ManageItemFields />} />
           </Route>
-
+          {/* Reports */}
           <Route path="reports" element={<Reports />} />
+          {/* Settings */}
           <Route path="settings" element={<Settings />} />
+
         </Route>
-       </Route>
+      </Route>
 
     </Routes>
-  )
+  );
 }
 
-export default App
+export default App;
