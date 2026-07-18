@@ -70,20 +70,17 @@ const Navbar = ({ collapsed, toggleSidebar }) => {
       `}</style>
 
       {/* Left Side */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <div className="simse-icon-btn" onClick={toggleSidebar}>
           {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </div>
 
-        <div>
+        <div >
           <Breadcrumb
             separator={<ChevronRight size={12} />}
             items={[{ title: "Admin" }, { title: currentPage }]}
-            style={{ fontSize: 12 }}
+            style={{ fontSize: 12, padding: "4px 10px", display: "flex", alignItems: "center", gap: 4, color: "#94A3B8", justifyContent: "center", borderRadius: 10, background: "#F8FAFC" }}
           />
-          <div style={{ marginTop: 2, fontSize: 19, fontWeight: 700, color: "#0F172A" }}>
-            {currentPage}
-          </div>
         </div>
       </div>
 

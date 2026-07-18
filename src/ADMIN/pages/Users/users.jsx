@@ -29,14 +29,22 @@ const formatCreatedDate = (dateInput) =>
     year: "numeric",
   });
 
-// Server sends/expects { username, password, name, email, role, stage_id, is_active }.
+// Server sends/expects { username, password, name, email, role, factory_id, line_id, stage_id, is_active }.
 // password is only sent on create — updates go through /change-password/:id separately.
-const normalizeUser = (item, stageOptions = []) => ({
+const normalizeUser = (item, factoryOptions = [], lineOptions = [], stageOptions = []) => ({
   id: item._id || item.id,
   username: item.username,
   name: item.name,
   email: item.email,
   role: item.role || "OPERATOR",
+  factoryId: item.factory_id ?? null,
+  factoryName: item.factory_id
+    ? item.factory_name || factoryOptions.find((f) => f.value === item.factory_id)?.label || "-"
+    : "\u2014",
+  lineId: item.line_id ?? null,
+  lineName: item.line_id
+    ? item.line_name || lineOptions.find((l) => l.value === item.line_id)?.label || "-"
+    : "\u2014",
   stageId: item.stage_id ?? null,
   stageName: item.stage_id
     ? item.stageName || stageOptions.find((s) => s.value === item.stage_id)?.label || "-"
@@ -49,8 +57,10 @@ const Users = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [stageOptions, setStageOptions] = useState([]);
-  const [stagesLoading, setStagesLoading] = useState(true);
+  const [factoryOptions, setFactoryOptions] = useState([]);
+  const [allLines, setAllLines] = useState([]); // { value, label, factoryId }
+  const [allStages, setAllStages] = useState([]); // { value, label, lineId } — adjust key if stages scope differently
+  const [optionsLoading, setOptionsLoading] = useState(true);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -60,6 +70,8 @@ const Users = () => {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   const roleValue = Form.useWatch("role", form);
+  const factoryValue = Form.useWatch("factoryId", form);
+  const lineValue = Form.useWatch("lineId", form);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -76,39 +88,66 @@ const Users = () => {
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      setStagesLoading(true);
+      setOptionsLoading(true);
 
-      const [stagesRes, usersRes] = await Promise.all([
+      const [factoriesRes, linesRes, stagesRes, usersRes] = await Promise.all([
+        api.get("/factories/all"),
+        api.get("/production-lines/all"),
         api.get("/stages/all"),
-        api.get("/users/all"), // requires a valid auth token — see note above
+        api.get("/users/all"),
       ]);
 
-      const stageList = (stagesRes.data?.data || stagesRes.data || []).map((s) => ({
+      // console.log("Factories:", factoriesRes.data);
+      // console.log("Lines:", linesRes.data);
+      console.log("Stages:", stagesRes.data);
+
+      const factoryList = (factoriesRes.data?.data || factoriesRes.data || []).map((f) => ({
+        value: f.id ?? f._id,
+        label: f.name,
+      }));
+
+      setFactoryOptions(factoryList);
+
+      const lineList = (linesRes.data?.data || linesRes.data || []).map((l) => ({
+        value: l.id ?? l._id,
+        label: l.name,
+        factoryId: l.factory_id,
+      }));
+      setAllLines(lineList);
+
+      const stageList = (stagesRes.data || []).map((s) => ({
         value: s._id || s.id,
         label: s.name,
+        lineId: s.line_id, // remove if stages aren't scoped to a line
       }));
-      setStageOptions(stageList);
+
+      setAllStages(stageList);
 
       const userList = usersRes.data?.data || usersRes.data || [];
-      setUsers(userList.map((u) => normalizeUser(u, stageList)));
+      setUsers(userList.map((u) => normalizeUser(u, factoryList, lineList, stageList)));
     } catch (err) {
       message.error(err?.response?.data?.message || "Failed to load users");
     } finally {
       setLoading(false);
-      setStagesLoading(false);
+      setOptionsLoading(false);
     }
   };
 
   const filteredData = users.filter((item) => {
     const query = search.toLowerCase();
     const matchesSearch =
-      item.username.toLowerCase().includes(query) || item.username.toUpperCase().includes(query) ||
+      item.username.toLowerCase().includes(query) ||
       item.name.toLowerCase().includes(query) ||
       (item.email || "").toLowerCase().includes(query) ||
       item.role.toLowerCase().includes(query);
     const matchesStatus = statusFilter === "All" || item.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  console.log("Line value:", lineValue, "Stage value:", Form.useWatch("stageId", form));
+  // Lines scoped to selected factory; stages scoped to selected line.
+  const lineOptionsForForm = allLines.filter((l) => l.factoryId === factoryValue);
+  const stageOptionsForForm = allStages.filter((s) => s.lineId === lineValue);
 
   const openAddModal = () => {
     setEditingRecord(null);
@@ -124,6 +163,8 @@ const Users = () => {
       name: record.name,
       email: record.email,
       role: record.role,
+      factoryId: record.factoryId || undefined,
+      lineId: record.lineId || undefined,
       stageId: record.stageId || undefined,
       status: record.status,
     });
@@ -132,8 +173,16 @@ const Users = () => {
 
   const handleRoleChange = (value) => {
     if (value !== "OPERATOR") {
-      form.setFieldsValue({ stageId: undefined });
+      form.setFieldsValue({ lineId: undefined, stageId: undefined });
     }
+  };
+
+  const handleFactoryChange = () => {
+    form.setFieldsValue({ lineId: undefined, stageId: undefined });
+  };
+
+  const handleLineChange = () => {
+    form.setFieldsValue({ stageId: undefined });
   };
 
   const handleSubmit = async () => {
@@ -149,7 +198,9 @@ const Users = () => {
       name: values.name,
       email: values.email,
       role: values.role,
-      stage_id: values.role === "OPERATOR" ? values.stageId : null,
+      factory_id: values.factoryId || null,
+      line_id: values.role === "OPERATOR" ? values.lineId || null : null,
+      stage_id: values.role === "OPERATOR" ? values.stageId || null : null,
       is_active: values.status === "Active",
     };
     if (!editingRecord) {
@@ -158,17 +209,14 @@ const Users = () => {
 
     try {
       setSaving(true);
-      const res = editingRecord
-        ? await api.put(`/users/update/${editingRecord.id}`, payload)
-        : await api.post("/users/create", payload);
+      if (editingRecord) {
+        await api.put(`/users/update/${editingRecord.id}`, payload);
+      } else {
+        await api.post("/users/create", payload);
+      }
 
-      const saved = normalizeUser(res.data?.data || res.data, stageOptions);
-
-      setUsers((prev) =>
-        editingRecord
-          ? prev.map((item) => (item.id === editingRecord.id ? saved : item))
-          : [...prev, saved]
-      );
+      // create/update controllers only return id/message — refetch for joined names
+      await loadInitialData();
       message.success(editingRecord ? "User updated" : "User created");
       setFormOpen(false);
     } catch (err) {
@@ -182,8 +230,9 @@ const Users = () => {
     try {
       setDeleting(true);
       await api.delete(`/users/delete/${deleteTarget.id}`);
-      setUsers((prev) => prev.filter((item) => item.id !== deleteTarget.id));
-      message.success("User deleted");
+      // deleteUser is a soft-delete (is_active = 0), not a real delete — refetch instead of filtering out
+      await loadInitialData();
+      message.success("User deactivated");
       setDeleteTarget(null);
     } catch (err) {
       message.error(err?.response?.data?.message || "Failed to delete user");
@@ -220,7 +269,6 @@ const Users = () => {
     }
   };
 
-  // No manual Serial No column — MasterTable already renders its own S.No column.
   const columns = [
     { title: "Username", dataIndex: "username", key: "username" },
     { title: "Name", dataIndex: "name", key: "name" },
@@ -231,6 +279,8 @@ const Users = () => {
       key: "role",
       render: (v) => <Tag color={ROLE_COLORS[v] || "default"}>{v}</Tag>,
     },
+    { title: "Factory", dataIndex: "factoryName", key: "factoryName" },
+    { title: "Line", dataIndex: "lineName", key: "lineName" },
     { title: "Stage", dataIndex: "stageName", key: "stageName" },
     { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
     { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
@@ -341,25 +391,65 @@ const Users = () => {
           </Row>
 
           <Row gutter={16}>
+            <Col span={roleValue === "OPERATOR" ? 8 : 24}>
+              <Form.Item
+                name="factoryId"
+                label="Factory"
+                rules={[{ required: true, message: "Select factory" }]}
+                style={{ marginBottom: 0 }}
+              >
+                <Select
+                  placeholder="Select factory"
+                  options={factoryOptions}
+                  loading={optionsLoading}
+                  showSearch
+                  optionFilterProp="label"
+                  onChange={handleFactoryChange}
+                />
+              </Form.Item>
+            </Col>
+
             {roleValue === "OPERATOR" && (
-              <Col span={12}>
-                <Form.Item
-                  name="stageId"
-                  label="Stage"
-                  rules={[{ required: true, message: "Select stage" }]}
-                  style={{ marginBottom: 0 }}
-                >
-                  <Select
-                    placeholder="Select stage"
-                    options={stageOptions}
-                    loading={stagesLoading}
-                    showSearch
-                    optionFilterProp="label"
-                  />
-                </Form.Item>
-              </Col>
+              <>
+                <Col span={8}>
+                  <Form.Item
+                    name="lineId"
+                    label="Line"
+                    rules={[{ required: true, message: "Select line" }]}
+                    style={{ marginBottom: 0 }}
+                  >
+                    <Select
+                      placeholder={factoryValue ? "Select line" : "Select a factory first"}
+                      options={lineOptionsForForm}
+                      disabled={!factoryValue}
+                      showSearch
+                      optionFilterProp="label"
+                      onChange={handleLineChange}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item
+                    name="stageId"
+                    label="Stage"
+                    rules={[{ required: true, message: "Select stage" }]}
+                    style={{ marginBottom: 0 }}
+                  >
+                    <Select
+                      placeholder={lineValue ? "Select stage" : "Select a line first"}
+                      options={stageOptionsForForm}
+                      disabled={!lineValue}
+                      showSearch
+                      optionFilterProp="label"
+                    />
+                  </Form.Item>
+                </Col>
+              </>
             )}
-            <Col span={roleValue === "OPERATOR" ? 12 : 24}>
+          </Row>
+
+          <Row gutter={16} style={{ marginTop: 16 }}>
+            <Col span={12}>
               <Form.Item
                 name="status"
                 label="Status"

@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
-import { Form, Input, Select, Row, Col, message } from "antd";
+import { Form, Input, Select, Switch, Row, Col, message } from "antd";
 
-import MasterHeader from "./components/MasterHeader";
-import MasterToolbar from "./components/MasterToolbar";
-import MasterTable from "./components/MasterTable";
-import StatusTag from "./components/StatusTag";
-import DeleteModal from "./components/DeleteModal";
-import MasterFormModal from "./components/MasterFormModal";
+import MasterHeader from "../Masters/components/MasterHeader";
+import MasterToolbar from "../Masters/components/MasterToolbar";
+import MasterTable from "../Masters/components/MasterTable";
+import StatusTag from "../Masters/components/StatusTag";
+import DeleteModal from "../Masters/components/DeleteModal";
+import MasterFormModal from "../Masters/components/MasterFormModal";
 
 import api from "../../../services/API/api";
 
@@ -19,19 +19,24 @@ const formatCreatedDate = (dateInput) =>
     year: "numeric",
   });
 
-// Server sends/expects { categoryId, name, description, remarks } (see notes above re: categoryId vs category_id).
-// UI/form uses stageName / stageDescription for readability; categoryOptions (fetched live)
-// is used to resolve categoryId -> categoryName for display, same pattern as ManageProducts.jsx.
-const normalizeStage = (item, categoryOptions = []) => ({
+// Server sends/expects { categoryId, factoryId, lineId, name, description, is_active(update only) }.
+const normalizeStage = (item, categoryOptions = [], factoryOptions = [], lineOptions = []) => ({
   id: item._id || item.id,
   categoryId: item.category_id ?? item.categoryId,
   categoryName:
-    item.categoryName ||
+    item.category_name ||
     categoryOptions.find((c) => c.value === (item.category_id ?? item.categoryId))?.label ||
     "-",
+  factoryId: item.factory_id ?? null,
+  factoryName: item.factory_id
+    ? item.factory_name || factoryOptions.find((f) => f.value === item.factory_id)?.label || "-"
+    : "\u2014",
+  lineId: item.line_id ?? null,
+  lineName: item.line_id
+    ? item.line_name || lineOptions.find((l) => l.value === item.line_id)?.label || "-"
+    : "\u2014",
   stageName: item.name,
   stageDescription: item.description,
-  remarks: item.remarks,
   status: item.status || (item.is_active === 0 ? "Inactive" : "Active"),
   createdDate: formatCreatedDate(item.created_at || item.createdAt || item.createdDate),
 });
@@ -41,7 +46,9 @@ const ManageStages = () => {
   const [loading, setLoading] = useState(true);
 
   const [categoryOptions, setCategoryOptions] = useState([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [factoryOptions, setFactoryOptions] = useState([]);
+  const [allLines, setAllLines] = useState([]); // { value, label, factoryId }
+  const [optionsLoading, setOptionsLoading] = useState(true);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -50,6 +57,7 @@ const ManageStages = () => {
   const [editingRecord, setEditingRecord] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const factoryValue = Form.useWatch("factoryId", form);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -61,13 +69,14 @@ const ManageStages = () => {
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      setCategoriesLoading(true);
+      setOptionsLoading(true);
 
-      const [categoriesRes, stagesRes] = await Promise.all([
+      const [categoriesRes, factoriesRes, linesRes, stagesRes] = await Promise.all([
         api.get("/categories/all"),
-        api.get("/stages/all"), // see note: your route sample said /products/all here, assumed a copy-paste slip
+        api.get("/factories/all"),
+        api.get("/production-lines/all"),
+        api.get("/stages/all"),
       ]);
-
 
       const categoryList = (categoriesRes.data?.categories || categoriesRes.data || []).map((cat) => ({
         value: cat._id || cat.id,
@@ -75,14 +84,27 @@ const ManageStages = () => {
       }));
       setCategoryOptions(categoryList);
 
+      const factoryList = (factoriesRes.data?.data || factoriesRes.data || []).map((f) => ({
+        value: f.id ?? f._id,
+        label: f.name,
+      }));
+      setFactoryOptions(factoryList);
+
+      const lineList = (linesRes.data?.data || linesRes.data || []).map((l) => ({
+        value: l.id ?? l._id,
+        label: l.name,
+        factoryId: l.factory_id,
+      }));
+      setAllLines(lineList);
+
       const stageList = stagesRes.data?.data || stagesRes.data || [];
-      setStages(stageList.map((item) => normalizeStage(item, categoryList)));
+      setStages(stageList.map((item) => normalizeStage(item, categoryList, factoryList, lineList)));
     } catch (err) {
-      console.log("ERROR IN FETCH BLOCK",err);
+      console.log("ERROR IN FETCH BLOCK", err);
       message.error(err?.response?.data?.message || "Failed to load stages");
     } finally {
       setLoading(false);
-      setCategoriesLoading(false);
+      setOptionsLoading(false);
     }
   };
 
@@ -90,11 +112,16 @@ const ManageStages = () => {
     const query = search.toLowerCase();
     const matchesSearch =
       item.categoryName.toLowerCase().includes(query) ||
+      item.factoryName.toLowerCase().includes(query) ||
+      item.lineName.toLowerCase().includes(query) ||
       item.stageName.toLowerCase().includes(query) ||
       (item.stageDescription || "").toLowerCase().includes(query);
     const matchesStatus = statusFilter === "All" || item.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  // Lines scoped to selected factory
+  const lineOptionsForForm = allLines.filter((l) => l.factoryId === factoryValue);
 
   const openAddModal = () => {
     setEditingRecord(null);
@@ -106,11 +133,17 @@ const ManageStages = () => {
     setEditingRecord(record);
     form.setFieldsValue({
       categoryId: record.categoryId,
+      factoryId: record.factoryId || undefined,
+      lineId: record.lineId || undefined,
       stageName: record.stageName,
       stageDescription: record.stageDescription,
-      remarks: record.remarks,
+      isActive: record.status !== "Inactive",
     });
     setFormOpen(true);
+  };
+
+  const handleFactoryChange = () => {
+    form.setFieldsValue({ lineId: undefined });
   };
 
   const handleSubmit = async () => {
@@ -121,32 +154,29 @@ const ManageStages = () => {
       return; // validation failed, stay in modal
     }
 
-    // Sent as categoryId (camelCase) to match your route sample literally.
-    // Change to category_id if your controller actually destructures the snake_case DB column name.
     const payload = {
       categoryId: values.categoryId,
+      factoryId: values.factoryId,
+      lineId: values.lineId,
       name: values.stageName,
       description: values.stageDescription,
-      remarks: values.remarks,
+      ...(editingRecord ? { is_active: values.isActive ? 1 : 0 } : {}),
     };
 
     try {
       setSaving(true);
-      const res = editingRecord
-        ? await api.put(`/stages/update/${editingRecord.id}`, payload)
-        : await api.post("/stages/create", payload);
+      if (editingRecord) {
+        await api.put(`/stages/update/${editingRecord.id}`, payload);
+      } else {
+        await api.post("/stages/create", payload);
+      }
 
-      const saved = normalizeStage(res.data?.data || res.data, categoryOptions);
-    
-      setStages((prev) =>
-        editingRecord
-          ? prev.map((item) => (item.id === editingRecord.id ? saved : item))
-          : [...prev, saved]
-      );
+      // controllers only return id/message, not the joined row — refetch.
+      await loadInitialData();
       message.success(editingRecord ? "Stage updated" : "Stage created");
       setFormOpen(false);
     } catch (err) {
-      console.log("ERROR IN HANDLE SUBMIT",err);
+      console.log("ERROR IN HANDLE SUBMIT", err);
       message.error(err?.response?.data?.message || "Failed to save stage");
     } finally {
       setSaving(false);
@@ -167,12 +197,12 @@ const ManageStages = () => {
     }
   };
 
-  // No manual Serial No column — MasterTable already renders its own S.No column.
   const columns = [
-    { title: "Category", dataIndex: "categoryName", key: "categoryName" },
     { title: "Stage Name", dataIndex: "stageName", key: "stageName" },
+    { title: "Category", dataIndex: "categoryName", key: "categoryName" },
+    { title: "Factory", dataIndex: "factoryName", key: "factoryName" },
+    { title: "Line", dataIndex: "lineName", key: "lineName" },
     { title: "Description", dataIndex: "stageDescription", key: "stageDescription", ellipsis: true },
-    { title: "Remarks", dataIndex: "remarks", key: "remarks", ellipsis: true },
     { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
     { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
   ];
@@ -182,7 +212,7 @@ const ManageStages = () => {
       <div style={{ padding: "20px 20px 0" }}>
         <MasterHeader
           title="Manage Stages"
-          description="Manage manufacturing stages linked to categories"
+          description="Manage manufacturing stages linked to factory, line and category"
           buttonLabel="Add Stage"
           onAddClick={openAddModal}
         />
@@ -191,7 +221,7 @@ const ManageStages = () => {
       <MasterToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by category, stage name or description..."
+        searchPlaceholder="Search by category, factory, line, stage name or description..."
         statusValue={statusFilter}
         onStatusChange={setStatusFilter}
       />
@@ -215,6 +245,42 @@ const ManageStages = () => {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
+                name="factoryId"
+                label="Factory"
+                rules={[{ required: true, message: "Please select a factory" }]}
+                style={{ marginBottom: 16 }}
+              >
+                <Select
+                  placeholder="Select factory"
+                  options={factoryOptions}
+                  loading={optionsLoading}
+                  showSearch
+                  optionFilterProp="label"
+                  onChange={handleFactoryChange}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="lineId"
+                label="Line"
+                rules={[{ required: true, message: "Please select a line" }]}
+                style={{ marginBottom: 16 }}
+              >
+                <Select
+                  placeholder={factoryValue ? "Select line" : "Select a factory first"}
+                  options={lineOptionsForForm}
+                  disabled={!factoryValue}
+                  showSearch
+                  optionFilterProp="label"
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
                 name="categoryId"
                 label="Category"
                 rules={[{ required: true, message: "Please select a category" }]}
@@ -223,7 +289,7 @@ const ManageStages = () => {
                 <Select
                   placeholder="Select category"
                   options={categoryOptions}
-                  loading={categoriesLoading}
+                  loading={optionsLoading}
                   showSearch
                   optionFilterProp="label"
                 />
@@ -241,13 +307,15 @@ const ManageStages = () => {
             </Col>
           </Row>
 
-          <Form.Item name="stageDescription" label="Stage Description" style={{ marginBottom: 16 }}>
+          <Form.Item name="stageDescription" label="Stage Description" style={{ marginBottom: editingRecord ? 16 : 0 }}>
             <TextArea rows={2} placeholder="Short description of the stage" />
           </Form.Item>
 
-          <Form.Item name="remarks" label="Remarks" style={{ marginBottom: 0 }}>
-            <TextArea rows={2} placeholder="Optional remarks" />
-          </Form.Item>
+          {editingRecord && (
+            <Form.Item name="isActive" label="Active" valuePropName="checked" style={{ marginBottom: 0 }}>
+              <Switch checkedChildren="Yes" unCheckedChildren="No" />
+            </Form.Item>
+          )}
         </Form>
       </MasterFormModal>
 
