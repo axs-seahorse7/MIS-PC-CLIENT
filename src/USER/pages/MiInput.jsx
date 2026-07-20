@@ -1,37 +1,3 @@
-// src/User/pages/MIInput/MIInput.jsx
-// -------------------------------------------------------------
-// MI Input - shop floor entry screen (Ant Design, frontend only)
-//
-// Layout:
-//   1. Top header  (fixed) - company logo + "PG MES" | USER + icon
-//   2. Sub header  (fixed) - "MI INPUT" title + STATUS tag
-//                            | New / Edit / Save / Cancel buttons
-//   3. Body (fills remaining height, no page scroll)
-//      - Left rail: quick module tabs (SM-ICT, ICT REQD, ...)
-//      - Center: entry form fields (Entry No, Line, WIP Bar Code,
-//        Item Planned, Date, Plan No, Quality, Machine, Station,
-//        Product Name, Plan Qty, Done Qty)
-//      - Bottom: PLAN / PROD / TODAY DONE / DONE% stat cards
-//
-// NOTE: Frontend only, as requested.
-//   - "WIP Bar Code" field has a scan icon button -> wire this up
-//     later to your QR scanner / hardware input, then call
-//     handleScanResult(code) to populate the rest of the fields
-//     from your API response.
-//   - Save button -> hook up your real save API in handleSave().
-//
-//   - ROLE-BASED STAGE ASSIGNMENT (added):
-//     Each operator is assigned exactly ONE stage by the admin
-//     dashboard (a separate app your other developer is building).
-//     ALL stages still show here with the same working/visuals, but
-//     this operator can only successfully scan their own assigned
-//     stage - scanning any other stage is rejected as INVALID.
-//     See `assignedStageIndex` below - it reads `user.assignedStage`
-//     from AuthContext (1-indexed stage number, e.g. 1 = "GROUPING OF
-//     PCB"). A hardcoded fallback is used only because there's no
-//     backend connected yet - remove the fallback once the admin
-//     dashboard + login API actually send `assignedStage`.
-// -------------------------------------------------------------
 
 import React, { useState, useRef, useEffect } from "react";
 import {
@@ -58,6 +24,7 @@ import {
   CloseCircleFilled,
 } from "@ant-design/icons";
 import { useAuth } from "../../Authentication/context/AuthContext";    // adjust path if your folder depth differs
+import api from "../../services/API/api";
 
 const { Text, Title } = Typography;
 
@@ -97,24 +64,14 @@ export default function MIInput() {
   // ---- Logged-in operator's assigned stage (from admin dashboard) ----
   const { user } = useAuth();
 
-  // `user.assignedStage` is expected to be a 1-indexed stage number
-  // (1 = STAGES[0], 2 = STAGES[1], etc.) coming from the login/auth API
-  // once the admin dashboard assigns it. Falls back to stage 1 ONLY for
-  // frontend testing since there's no backend connected yet - remove
-  // the `?? 1` fallback once `user.assignedStage` is really populated.
+  
   const assignedStageIndex = (user?.assignedStage ?? 1) - 1;
 
-  // ---- Scanning stage tracker state (frontend-only simulation) ----
-  // stageStatus[i]: "pending" | "done" | "error"
   const [stageStatus, setStageStatus] = useState(Array(STAGES.length).fill("pending"));
-  // indices currently in their instant "flash" tick (JS-driven, not CSS)
   const [flashIndices, setFlashIndices] = useState(new Set());
-  // index of the last stage that was confirmed IN correct sequence order
   const [lastConfirmed, setLastConfirmed] = useState(-1);
 
-  // system-generated identifiers - created automatically on the very
-  // first successful scan of a fresh entry (mirrors what your backend
-  // will eventually generate and link server-side)
+  
   const [groupId, setGroupId] = useState(null);
   const [serialNo, setSerialNo] = useState(null);
 
@@ -122,9 +79,87 @@ export default function MIInput() {
   const [missingModalOpen, setMissingModalOpen] = useState(false);
   const [missingStages, setMissingStages] = useState([]); // [{ index, label }]
 
-  // Flashes a single tile ON/OFF a fixed number of times, then resolves.
-  // This gives an EXACT blink count (unlike a looping CSS animation),
-  // which is what lets us do "blink once" vs "blink twice" reliably.
+  const [products, setProducts] = useState([]);
+
+  // remove: categories, categoriesLoading state and its useEffect
+// remove: handleCategoryChange
+const [productsLoading, setProductsLoading] = useState(true);
+
+
+ const [form, setForm] = useState({
+    entryNo: "6A",
+    productId: null,
+    erpNo: null,
+    wipBarCode: "",
+    itemPlanned: "0710S881324",
+    date: "10/07/2026",
+    planNo: "20260709-0C",
+    quality: "OK",
+    machineName: "68/01MI & CTL LIN",
+    station: "1006:MI01.A001",
+    productName: "",
+    planQty: 5000,
+    doneQty: 2055,
+  });
+
+
+
+useEffect(() => {
+  const fetchProducts = async () => {
+    try {
+      setProductsLoading(true);
+      const res = await api.get("/products/all");
+      setProducts(res?.data?.data || res?.data || []);
+    } catch (err) {
+      console.error("Error fetching products:", err);
+      message.error("Failed to load products");
+    } finally {
+      setProductsLoading(false);
+    }
+  };
+  fetchProducts();
+}, []);
+
+
+// new state
+const [stageFlow, setStageFlow] = useState(null); // { sequence_no, scan_mode, group_required } for THIS user's stage on the selected product
+const [pendingGroupScans, setPendingGroupScans] = useState([]); // scans collected under GROUP_CREATE, not yet grouped
+const [savingGroup, setSavingGroup] = useState(false);
+
+// fetch stage-flow info when product changes
+useEffect(() => {
+  if (!form.productId) {
+    setStageFlow(null);
+    setPendingGroupScans([]);
+    return;
+  }
+  const fetchStageFlow = async () => {
+    try {
+      const res = await api.get(`/product-stage-flow/${form.productId}`);
+      // assumes API returns the row matching the logged-in user's stage
+      setStageFlow(res?.data?.data || null);
+      setPendingGroupScans([]);
+    } catch (err) {
+      message.error("Failed to load stage flow for this product");
+    }
+  };
+  fetchStageFlow();
+}, [form.productId]); 
+
+
+
+// Selecting an ERP number auto-fills the product name / id for scan readiness
+const handleErpSelect = (productId) => {
+  const selected = products.find((p) => p.id === productId);
+  setForm((f) => ({
+    ...f,
+    productId,
+    erpNo: selected?.erp_no || "",
+    productName: selected?.name || "",
+  }));
+};
+
+
   const flashTile = (index, times) => {
     return new Promise((resolve) => {
       let toggles = 0;
@@ -150,11 +185,7 @@ export default function MIInput() {
     });
   };
 
-  // The confirm animation for a successful, in-sequence scan reaching
-  // `newIndex`:
-  //   1. every already-completed stage before it blinks ONCE together
-  //   2. then the just-scanned stage blinks TWICE
-  //   3. then everything settles to solid blue
+ 
   const playConfirmAnimation = async (newIndex) => {
     const priorRange = Array.from({ length: newIndex }, (_, k) => k);
     if (priorRange.length) {
@@ -163,26 +194,7 @@ export default function MIInput() {
     await flashTile(newIndex, 2);
   };
 
-  // ---- This function represents a SCAN EVENT coming from the scanner/backend ----
-  // Do NOT call this from a click handler in production. Wire it up to your
-  // real scan source instead (hardware scanner acting as a keyboard, or a
-  // WebSocket/backend event once the ERP code -> stage lookup exists there).
-  //
-  // Rules:
-  //  0. Scanning a stage that ISN'T this operator's assigned stage ->
-  //     INVALID, rejected with an error toast, no state change.
-  //  1. Scanning an already-completed stage again -> DUPLICATE, rejected
-  //     with a warning toast, no state change.
-  //  2. Scanning the next expected stage in sequence -> success. Group ID
-  //     + Serial No are generated on the very first scan of a fresh entry.
-  //     Confirm animation plays (see playConfirmAnimation above).
-  //  3. Scanning a stage further ahead (one or more got skipped) -> the
-  //     skipped stage(s) AND this stage turn red (error), and a popup
-  //     tells the operator exactly which stage(s) are missing.
-  //  4. Scanning a stage that is currently red (error) -> fixes just that
-  //     one stage (accepted / turns blue).
   const handleStageScanned = async (index) => {
-    // 0. this operator is only assigned ONE stage - block everything else
     if (index !== assignedStageIndex) {
       message.error(
         `Invalid: "${STAGES[index]}" is not your assigned stage. You are assigned to "${STAGES[assignedStageIndex]}".`
@@ -245,21 +257,13 @@ export default function MIInput() {
     }
   };
 
-  // The WIP Bar Code field (in the form, below) is the single scan
-  // target. Pressing Enter there (which a real scanner does automatically
-  // after typing/scanning the code) resolves which stage it belongs to
-  // and advances the stage tracker.
+
   const wipCodeRef = useRef(null);
 
   useEffect(() => {
     wipCodeRef.current?.focus();
   }, []);
 
-  // TEMP convention for frontend testing: the last 1-2 digits of the
-  // scanned ERP code are treated as the stage number (e.g. a code ending
-  // in "...04" -> Stage 4). Once your backend can resolve an ERP code to
-  // its real stage (and generate/validate the Group ID), replace this
-  // with that lookup instead.
   const resolveStageFromCode = (code) => {
     const match = code.trim().match(/(\d{1,2})$/);
     if (match) {
@@ -269,18 +273,65 @@ export default function MIInput() {
     return lastConfirmed + 1; // fallback: assume the next expected stage
   };
 
-  const handleWipCodeScanned = () => {
-    const code = form.wipBarCode.trim();
-    if (!code) return;
-    handleStageScanned(resolveStageFromCode(code));
 
-    // Highlight the just-scanned code so the NEXT scan (which just types
-    // fresh characters, like any hardware scanner does) automatically
-    // overwrites it instead of appending after it. The field still shows
-    // this code on screen until that next scan happens.
-    setTimeout(() => wipCodeRef.current?.select(), 50);
-  };
+ const submitScanToServer = async (code) => {
+  try {
+    const res = await api.post("/scan-history/create", {
+      scanned_value: code,
+      product_id: form.productId,
+    });
+    return res.data; // { success, message, data: { id, sequence_no, scan_mode, pending_group } }
+  } catch (err) {
+    message.error(err?.response?.data?.message || "Scan submission failed");
+    return null;
+  }
+};
 
+const handleWipCodeScanned = async () => {
+  const code = form.wipBarCode.trim();
+  if (!code) return;
+
+  if (!form.productId) {
+    message.warning("Select an ERP number before scanning.");
+    return;
+  }
+
+  const result = await submitScanToServer(code);
+  if (!result || !result.success) return; // server rejected, stop here
+
+  if (result.data.pending_group) {
+    // GROUP_CREATE: accept into the pending list, don't mark tile done yet
+    setPendingGroupScans((prev) => [...prev, { code, id: result.data.id }]);
+    message.success(`Scan added (${pendingGroupScans.length + 1} pending). Save group when ready.`);
+  } else {
+    // SINGLE: advance immediately using server-confirmed sequence
+    handleStageScanned(resolveStageFromCode(code)); // TODO: swap for real stage index once server returns it
+  }
+
+  setTimeout(() => wipCodeRef.current?.select(), 50);
+};
+
+const handleSaveGroup = async () => {
+  if (!pendingGroupScans.length) {
+    message.warning("No pending scans to group.");
+    return;
+  }
+  setSavingGroup(true);
+  try {
+    // NOT BUILT YET on backend — placeholder call
+    await api.post("/scan-history/create-group", {
+      scan_ids: pendingGroupScans.map((s) => s.id),
+    });
+    message.success(`Group created with ${pendingGroupScans.length} items`);
+    setPendingGroupScans([]);
+    // now flip the tile to done, since group is finalized
+    handleStageScanned(assignedStageIndex);
+  } catch (err) {
+    message.error(err?.response?.data?.message || "Failed to save group");
+  } finally {
+    setSavingGroup(false);
+  }
+};
   // Module quick-access buttons (left side of action bar)
   const MODULE_BUTTONS = [
     "SM-ICT",
@@ -295,20 +346,7 @@ export default function MIInput() {
   ];
   const [activeModule, setActiveModule] = useState(MODULE_BUTTONS[0]);
 
-  const [form, setForm] = useState({
-    entryNo: "6A",
-    line: "102:MI LINE 02",
-    wipBarCode: "",
-    itemPlanned: "0710S881324",
-    date: "10/07/2026",
-    planNo: "20260709-0C",
-    quality: "OK",
-    machineName: "68/01MI & CTL LIN",
-    station: "1006:MI01.A001",
-    productName: "70020206:IDU PCB CVTE INV 12K & 18K REV_01 (S.KFNSI)",
-    planQty: 5000,
-    doneQty: 2055,
-  });
+  
 
   const isEditable = mode === "new" || mode === "edit";
 
@@ -322,11 +360,23 @@ export default function MIInput() {
     setStatus("DRAFT");
   };
   const handleEdit = () => setMode("edit");
-  const handleSave = () => {
-    // TODO: call your real save API here
-    setMode("view");
-    setStatus("SAVED/ACCEPTED");
+
+  const handleSave = async () => {
+    try {
+      await api.post("/mi-input/create", {
+        ...form,
+        groupId,
+        serialNo,
+        stageStatus,
+      });
+      setMode("view");
+      setStatus("SAVED/ACCEPTED");
+      message.success("MI input saved");
+    } catch (err) {
+      message.error(err?.response?.data?.message || "Failed to save MI input");
+    }
   };
+
   const handleCancel = () => {
     setMode("view");
   };
@@ -572,13 +622,24 @@ export default function MIInput() {
                 <Input value={form.entryNo} disabled={!isEditable} onChange={updateField("entryNo")} />
               </Col>
               <Col span={8}>
-                <FieldLabel text="Line" />
+                <FieldLabel text="Select ERP Number" />
                 <Select
                   style={{ width: "100%" }}
-                  value={form.line}
+                  placeholder="Search ERP number or product"
+                  value={form.productId}
                   disabled={!isEditable}
-                  options={LINE_OPTIONS}
-                  onChange={(val) => setForm((f) => ({ ...f, line: val }))}
+                  loading={productsLoading}
+                  showSearch
+                  allowClear
+                  optionFilterProp="label"
+                  filterOption={(input, option) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={products.map((p) => ({
+                    value: p.id,
+                    label: `${p.erp_no || "—"} — ${p.name}`,
+                  }))}
+                  onChange={handleErpSelect}
                 />
               </Col>
               <Col span={8}>
@@ -589,10 +650,25 @@ export default function MIInput() {
                   value={form.wipBarCode}
                   onChange={updateField("wipBarCode")}
                   onPressEnter={handleWipCodeScanned}
-                  onBlur={() => setTimeout(() => wipCodeRef.current?.focus(), 50)}
+                  // onBlur={() => setTimeout(() => wipCodeRef.current?.focus(), 50)}
                   suffix={<ScanOutlined style={{ color: "#3a6d95" }} />}
                 />
               </Col>
+
+              {stageFlow?.scan_mode === "GROUP_CREATE" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -6 }}>
+                    <Tag color="orange">{pendingGroupScans.length} scanned, pending group save</Tag>
+                    <Button
+                      type="primary"
+                      size="small"
+                      disabled={!pendingGroupScans.length}
+                      loading={savingGroup}
+                      onClick={handleSaveGroup}
+                    >
+                      Save Group
+                    </Button>
+                  </div>
+                )}
 
               <Col span={8}>
                 <FieldLabel text="Item Planned" />

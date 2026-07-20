@@ -32,6 +32,8 @@ const normalizeProduct = (item, categoryOptions = []) => ({
   productName: item.name,
   productDescription: item.description,
   remarks: item.remarks,
+  erpNo: item.erp_no,
+  serialNo: item.serial_no,
   status: item.status || (item.is_active === 0 ? "Inactive" : "Active"),
   createdDate: formatCreatedDate(item.created_at || item.createdAt || item.createdDate),
 });
@@ -110,6 +112,8 @@ const ManageProducts = () => {
       productName: record.productName,
       productDescription: record.productDescription,
       remarks: record.remarks,
+      erpNo: record.erpNo,
+      serialNo: record.serialNo,
       status: record.status,
     });
     setFormOpen(true);
@@ -128,6 +132,8 @@ const ManageProducts = () => {
       name: values.productName,
       description: values.productDescription,
       remarks: values.remarks,
+      erpNo: values.erpNo,
+      serialNo: values.serialNo,
       status: values.status,
     };
 
@@ -171,6 +177,8 @@ const ManageProducts = () => {
   const columns = [
     { title: "Category", dataIndex: "categoryName", key: "categoryName" },
     { title: "Product Name", dataIndex: "productName", key: "productName" },
+    { title: "ERP No", dataIndex: "erpNo", key: "erpNo" },
+    { title: "Serial No", dataIndex: "serialNo", key: "serialNo" },
     { title: "Description", dataIndex: "productDescription", key: "productDescription", ellipsis: true },
     { title: "Remarks", dataIndex: "remarks", key: "remarks", ellipsis: true },
     { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
@@ -237,6 +245,47 @@ const ManageProducts = () => {
                 style={{ marginBottom: 16 }}
               >
                 <Input placeholder="e.g. Outdoor PCB" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="erpNo" label="ERP No" style={{ marginBottom: 16 }}>
+                <Input placeholder="e.g. ERP-00123" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="serialNo" label="Serial No" style={{ marginBottom: 16 }}>
+                <Input placeholder="e.g. SN-00123" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="productDescription" label="Product Description" style={{ marginBottom: 16 }}>
+            <TextArea rows={2} placeholder="Short description of the product" />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="remarks" label="Remarks" style={{ marginBottom: 0 }}>
+                <TextArea rows={2} placeholder="Optional remarks" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="status"
+                label="Status"
+                rules={[{ required: true, message: "Select status" }]}
+                style={{ marginBottom: 0 }}
+              >
+                <Select
+                  placeholder="Select status"
+                  options={[
+                    { value: "Active", label: "Active" },
+                    { value: "Inactive", label: "Inactive" },
+                  ]}
+                />
               </Form.Item>
             </Col>
           </Row>
