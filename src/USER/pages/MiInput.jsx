@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from "react";
 import {
   Button,
@@ -11,7 +10,7 @@ import {
   Col,
   Space,
   Typography,
-  Modal,
+  Alert,
   message,
 } from "antd";
 import {
@@ -23,24 +22,10 @@ import {
   CheckCircleFilled,
   CloseCircleFilled,
 } from "@ant-design/icons";
-import { useAuth } from "../../Authentication/context/AuthContext";    // adjust path if your folder depth differs
+import { useAuth } from "../../Authentication/context/AuthContext"; // adjust path if your folder depth differs
 import api from "../../services/API/api";
 
 const { Text, Title } = Typography;
-
-// Left rail - production scanning stages (in expected sequence order)
-const STAGES = [
-  "GROUPING OF PCB",
-  "SMT INPUT",
-  "SMI INPUT",
-  "SOLDERING",
-  "AI INPUT SCANNING",
-  "SCANNING OF THE OUTPUT",
-  "MI INPUT SCANNING",
-  "PROGRAMMING STAGE",
-  "FCT STAGE",
-  "OUTPUT STAGE",
-];
 
 // Status -> Tag color map
 const STATUS_COLOR = {
@@ -57,6 +42,22 @@ const QUALITY_OPTIONS = [
   { value: "REJECT", label: "REJECT" },
 ];
 
+const EMPTY_FORM = {
+  entryNo: "",
+  productId: null,
+  erpNo: null,
+  wipBarCode: "",
+  itemPlanned: "",
+  date: "",
+  planNo: "",
+  quality: "OK",
+  machineName: "",
+  station: "",
+  productName: "",
+  planQty: 0,
+  doneQty: 0,
+};
+
 export default function MIInput() {
   const [mode, setMode] = useState("view"); // "view" | "new" | "edit"
   const [status, setStatus] = useState("SAVED/ACCEPTED");
@@ -64,101 +65,101 @@ export default function MIInput() {
   // ---- Logged-in operator's assigned stage (from admin dashboard) ----
   const { user } = useAuth();
 
-  
-  const assignedStageIndex = (user?.assignedStage ?? 1) - 1;
+  const [stageFlowRows, setStageFlowRows] = useState([]); // ALL stages for this product, sorted by sequence_no
+  const [stageFlow, setStageFlow] = useState(null); // the ONE row matching the logged-in user's stage
 
-  const [stageStatus, setStageStatus] = useState(Array(STAGES.length).fill("pending"));
+  const STAGES = stageFlowRows.map((r) => r.stage_name);
+  const assignedStageIndex = stageFlow ? stageFlow.sequence_no - 1 : -1;
+
+  const [stageStatus, setStageStatus] = useState([]);
   const [flashIndices, setFlashIndices] = useState(new Set());
   const [lastConfirmed, setLastConfirmed] = useState(-1);
 
-  
   const [groupId, setGroupId] = useState(null);
   const [serialNo, setSerialNo] = useState(null);
 
-  // "missing stage" popup state
-  const [missingModalOpen, setMissingModalOpen] = useState(false);
+  // "missing stage" inline banner state
   const [missingStages, setMissingStages] = useState([]); // [{ index, label }]
 
   const [products, setProducts] = useState([]);
+  const [productsLoading, setProductsLoading] = useState(true);
 
-  // remove: categories, categoriesLoading state and its useEffect
-// remove: handleCategoryChange
-const [productsLoading, setProductsLoading] = useState(true);
+  const [form, setForm] = useState(EMPTY_FORM);
 
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        setProductsLoading(true);
+        const res = await api.get("/products/all");
+        setProducts(res?.data?.data || res?.data || []);
+      } catch (err) {
+        console.error("Error fetching products:", err);
+        message.error("Failed to load products");
+      } finally {
+        setProductsLoading(false);
+      }
+    };
+    fetchProducts();
+  }, []);
 
- const [form, setForm] = useState({
-    entryNo: "6A",
-    productId: null,
-    erpNo: null,
-    wipBarCode: "",
-    itemPlanned: "0710S881324",
-    date: "10/07/2026",
-    planNo: "20260709-0C",
-    quality: "OK",
-    machineName: "68/01MI & CTL LIN",
-    station: "1006:MI01.A001",
-    productName: "",
-    planQty: 5000,
-    doneQty: 2055,
-  });
+  // ---- GROUP_CREATE staging: scans collected here are LOCAL ONLY.
+  // Nothing hits scan_history until "Save Group" is clicked, at which
+  // point the whole batch of codes is sent to the server together.
+  const [pendingGroupScans, setPendingGroupScans] = useState([]); // [{ code, tempId }]
+  const [savingGroup, setSavingGroup] = useState(false);
 
-
-
-useEffect(() => {
-  const fetchProducts = async () => {
-    try {
-      setProductsLoading(true);
-      const res = await api.get("/products/all");
-      setProducts(res?.data?.data || res?.data || []);
-    } catch (err) {
-      console.error("Error fetching products:", err);
-      message.error("Failed to load products");
-    } finally {
-      setProductsLoading(false);
-    }
-  };
-  fetchProducts();
-}, []);
-
-
-// new state
-const [stageFlow, setStageFlow] = useState(null); // { sequence_no, scan_mode, group_required } for THIS user's stage on the selected product
-const [pendingGroupScans, setPendingGroupScans] = useState([]); // scans collected under GROUP_CREATE, not yet grouped
-const [savingGroup, setSavingGroup] = useState(false);
-
-// fetch stage-flow info when product changes
-useEffect(() => {
-  if (!form.productId) {
-    setStageFlow(null);
-    setPendingGroupScans([]);
-    return;
-  }
-  const fetchStageFlow = async () => {
-    try {
-      const res = await api.get(`/product-stage-flow/${form.productId}`);
-      // assumes API returns the row matching the logged-in user's stage
-      setStageFlow(res?.data?.data || null);
+  // fetch stage-flow info when product changes
+  useEffect(() => {
+    if (!form.productId) {
+      setStageFlowRows([]);
+      setStageFlow(null);
       setPendingGroupScans([]);
-    } catch (err) {
-      message.error("Failed to load stage flow for this product");
+      setStageStatus([]);
+      setLastConfirmed(-1);
+      return;
     }
+
+    const fetchStageFlow = async () => {
+      try {
+        const res = await api.get(`/product-stage-flow/${form.productId}`);
+        const payload = res?.data || [];
+        const rows = Array.isArray(payload) ? payload : payload ? [payload] : [];
+
+        const sorted = [...rows].sort((a, b) => a.sequence_no - b.sequence_no);
+        setStageFlowRows(sorted);
+
+        // Confirm this matches your real /auth/me shape — using stage.id here
+        // per your latest user object.
+        const matched = sorted.find((r) => r.stage_id === user?.stage?.id) || null;
+
+        if (!matched) {
+          console.warn("No matching stage-flow row found for this user's assigned stage.");
+        }
+        setStageFlow(matched);
+
+        setStageStatus(Array(sorted.length).fill("pending"));
+        setPendingGroupScans([]);
+        setLastConfirmed(-1);
+        setGroupId(null);
+        setSerialNo(null);
+      } catch (err) {
+        message.error("Failed to load stage flow for this product");
+      }
+    };
+
+    fetchStageFlow();
+  }, [form.productId, user]);
+
+  // Selecting an ERP number auto-fills the product name / id for scan readiness
+  const handleErpSelect = (productId) => {
+    const selected = products.find((p) => p.id === productId);
+    setForm((f) => ({
+      ...f,
+      productId,
+      erpNo: selected?.erp_no || "",
+      productName: selected?.name || "",
+    }));
   };
-  fetchStageFlow();
-}, [form.productId]); 
-
-
-
-// Selecting an ERP number auto-fills the product name / id for scan readiness
-const handleErpSelect = (productId) => {
-  const selected = products.find((p) => p.id === productId);
-  setForm((f) => ({
-    ...f,
-    productId,
-    erpNo: selected?.erp_no || "",
-    productName: selected?.name || "",
-  }));
-};
-
 
   const flashTile = (index, times) => {
     return new Promise((resolve) => {
@@ -185,7 +186,6 @@ const handleErpSelect = (productId) => {
     });
   };
 
- 
   const playConfirmAnimation = async (newIndex) => {
     const priorRange = Array.from({ length: newIndex }, (_, k) => k);
     if (priorRange.length) {
@@ -218,6 +218,7 @@ const handleErpSelect = (productId) => {
         return next;
       });
       if (index > lastConfirmed) setLastConfirmed(index);
+      setMissingStages((prev) => prev.filter((s) => s.index !== index));
       await flashTile(index, 2);
       return;
     }
@@ -252,86 +253,125 @@ const handleErpSelect = (productId) => {
       });
       setLastConfirmed(index);
       setMissingStages(missing);
-      setMissingModalOpen(true);
       return;
     }
   };
 
-
   const wipCodeRef = useRef(null);
+  const groupResetTimeoutRef = useRef(null);
 
   useEffect(() => {
     wipCodeRef.current?.focus();
   }, []);
 
-  const resolveStageFromCode = (code) => {
-    const match = code.trim().match(/(\d{1,2})$/);
-    if (match) {
-      const n = parseInt(match[1], 10);
-      if (n >= 1 && n <= STAGES.length) return n - 1;
+  // clear any pending auto-reset if the component unmounts mid-timeout
+  useEffect(() => {
+    return () => {
+      if (groupResetTimeoutRef.current) clearTimeout(groupResetTimeoutRef.current);
+    };
+  }, []);
+
+  // ---- direct save path, used for SINGLE / GROUP_SCAN only ----
+  const submitScanToServer = async (code) => {
+    try {
+      const res = await api.post("/scan-history/create", {
+        scanned_value: code,
+        product_id: form.productId,
+      });
+      return res.data; // { success, message, data: { id, sequence_no, scan_mode } }
+    } catch (err) {
+      message.error(err?.response?.data?.message || "Scan submission failed");
+      return null;
     }
-    return lastConfirmed + 1; // fallback: assume the next expected stage
   };
 
+  const handleWipCodeScanned = async () => {
+    const code = form.wipBarCode.trim();
+    if (!code) return;
 
- const submitScanToServer = async (code) => {
-  try {
-    const res = await api.post("/scan-history/create", {
-      scanned_value: code,
-      product_id: form.productId,
-    });
-    return res.data; // { success, message, data: { id, sequence_no, scan_mode, pending_group } }
-  } catch (err) {
-    message.error(err?.response?.data?.message || "Scan submission failed");
-    return null;
-  }
-};
+    if (!form.productId) {
+      message.warning("Select an ERP number before scanning.");
+      return;
+    }
+    if (!stageFlow) {
+      message.warning("Stage flow not loaded for this product yet.");
+      return;
+    }
 
-const handleWipCodeScanned = async () => {
-  const code = form.wipBarCode.trim();
-  if (!code) return;
+    // Clear the field immediately after every attempt so a rejected/duplicate
+    // scan can't linger and get concatenated with the next scanner read.
+    setForm((f) => ({ ...f, wipBarCode: "" }));
+    setTimeout(() => wipCodeRef.current?.focus(), 50);
 
-  if (!form.productId) {
-    message.warning("Select an ERP number before scanning.");
-    return;
-  }
+    if (stageFlow.scan_mode === "GROUP_CREATE") {
+      // ---- LOCAL ONLY: no server call here. Item just gets staged. ----
+      setPendingGroupScans((prev) => {
+        if (prev.some((s) => s.code === code)) {
+          message.warning(`"${code}" is already in the pending list.`);
+          return prev;
+        }
+        const next = [...prev, { code, tempId: `${code}-${Date.now()}` }];
+        message.success(`Scan added (${next.length} pending). Save group when ready.`);
+        return next;
+      });
+      return;
+    }
 
-  const result = await submitScanToServer(code);
-  if (!result || !result.success) return; // server rejected, stop here
+    // SINGLE or GROUP_SCAN: save directly, as before.
+    const result = await submitScanToServer(code);
+    if (!result || !result.success) return;
+    handleStageScanned(result.data.sequence_no - 1);
+  };
 
-  if (result.data.pending_group) {
-    // GROUP_CREATE: accept into the pending list, don't mark tile done yet
-    setPendingGroupScans((prev) => [...prev, { code, id: result.data.id }]);
-    message.success(`Scan added (${pendingGroupScans.length + 1} pending). Save group when ready.`);
-  } else {
-    // SINGLE: advance immediately using server-confirmed sequence
-    handleStageScanned(resolveStageFromCode(code)); // TODO: swap for real stage index once server returns it
-  }
+  // remove a mistakenly-scanned item from the pending GROUP_CREATE list
+  const handleRemovePendingScan = (tempId) => {
+    setPendingGroupScans((prev) => prev.filter((s) => s.tempId !== tempId));
+  };
 
-  setTimeout(() => wipCodeRef.current?.select(), 50);
-};
+  // send the whole staged batch to the server at once; server validates
+  // sequence for every code, creates the group, and inserts all rows
+  // together in one transaction.
+  const handleSaveGroup = async () => {
+    if (!pendingGroupScans.length) {
+      message.warning("No pending scans to group.");
+      return;
+    }
+    setSavingGroup(true);
+    try {
+      const res = await api.post("/scan-history/create-group", {
+        scanned_values: pendingGroupScans.map((s) => s.code),
+        product_id: form.productId,
+      });
+      if (!res?.data?.success) {
+        message.error(res?.data?.message || "Failed to save group");
+        return;
+      }
+      message.success(`Group created with ${pendingGroupScans.length} items`);
+      setPendingGroupScans([]);
+      await handleStageScanned(assignedStageIndex);
 
-const handleSaveGroup = async () => {
-  if (!pendingGroupScans.length) {
-    message.warning("No pending scans to group.");
-    return;
-  }
-  setSavingGroup(true);
-  try {
-    // NOT BUILT YET on backend — placeholder call
-    await api.post("/scan-history/create-group", {
-      scan_ids: pendingGroupScans.map((s) => s.id),
-    });
-    message.success(`Group created with ${pendingGroupScans.length} items`);
-    setPendingGroupScans([]);
-    // now flip the tile to done, since group is finalized
-    handleStageScanned(assignedStageIndex);
-  } catch (err) {
-    message.error(err?.response?.data?.message || "Failed to save group");
-  } finally {
-    setSavingGroup(false);
-  }
-};
+      // GROUP_CREATE tiles represent "a group was just saved", not permanent
+      // progress on a single item — reset the tile so it's ready to animate
+      // the next PCB group instead of staying stuck on "done".
+      if (groupResetTimeoutRef.current) clearTimeout(groupResetTimeoutRef.current);
+      groupResetTimeoutRef.current = setTimeout(() => {
+        setStageStatus((prev) => {
+          const next = [...prev];
+          next[assignedStageIndex] = "pending";
+          return next;
+        });
+        setLastConfirmed(-1);
+        setGroupId(null);
+        setSerialNo(null);
+        groupResetTimeoutRef.current = null;
+      }, 3000);
+    } catch (err) {
+      message.error(err?.response?.data?.message || "Failed to save group");
+    } finally {
+      setSavingGroup(false);
+    }
+  };
+
   // Module quick-access buttons (left side of action bar)
   const MODULE_BUTTONS = [
     "SM-ICT",
@@ -346,8 +386,6 @@ const handleSaveGroup = async () => {
   ];
   const [activeModule, setActiveModule] = useState(MODULE_BUTTONS[0]);
 
-  
-
   const isEditable = mode === "new" || mode === "edit";
 
   const updateField = (key) => (e) => {
@@ -355,26 +393,34 @@ const handleSaveGroup = async () => {
     setForm((f) => ({ ...f, [key]: value }));
   };
 
+  // ---- New: full reset, ready for a fresh ERP selection ----
   const handleNew = () => {
+    setForm(EMPTY_FORM);
+    setStageFlowRows([]);
+    setStageFlow(null);
+    setStageStatus([]);
+    setPendingGroupScans([]);
+    setLastConfirmed(-1);
+    setGroupId(null);
+    setSerialNo(null);
     setMode("new");
     setStatus("DRAFT");
   };
-  const handleEdit = () => setMode("edit");
 
-  const handleSave = async () => {
-    try {
-      await api.post("/mi-input/create", {
-        ...form,
-        groupId,
-        serialNo,
-        stageStatus,
-      });
-      setMode("view");
-      setStatus("SAVED/ACCEPTED");
-      message.success("MI input saved");
-    } catch (err) {
-      message.error(err?.response?.data?.message || "Failed to save MI input");
-    }
+  // ---- Edit: unlock fields only, keep everything currently on screen ----
+  const handleEdit = () => {
+    setMode("edit");
+    setStatus("PENDING");
+  };
+
+  // ---- Save: does NOT hit the server. Scans already persisted themselves
+  // (SINGLE/GROUP_SCAN on each scan, GROUP_CREATE via "Save Group"). This
+  // button only locks the form fields back down and returns focus to the
+  // barcode input so the operator can keep scanning the next unit. ----
+  const handleSave = () => {
+    setMode("view");
+    setStatus("SAVED/ACCEPTED");
+    setTimeout(() => wipCodeRef.current?.focus(), 50);
   };
 
   const handleCancel = () => {
@@ -436,6 +482,30 @@ const handleSaveGroup = async () => {
         </Space>
       </div>
 
+      {/* ---------- MISSING STAGE INLINE BANNER (below action bar) ---------- */}
+      {missingStages.length > 0 && (
+        <Alert
+          type="error"
+          showIcon
+          closable
+          onClose={() => setMissingStages([])}
+          message={
+            <span style={{ fontSize: 12.5 }}>
+              <strong>Missing stage(s):</strong>{" "}
+              {missingStages.map((s) => s.label).join(", ")} must be scanned before this stage.
+              They're marked red on the left rail.
+            </span>
+          }
+          style={{
+            flexShrink: 0,
+            borderRadius: 0,
+            padding: "6px 20px",
+            border: "none",
+            borderBottom: "1px solid #f5c6c0",
+          }}
+        />
+      )}
+
       {/* ---------- SUB HEADER (fixed) ---------- */}
       <div
         style={{
@@ -477,30 +547,6 @@ const handleSaveGroup = async () => {
         </Space>
       </div>
 
-      {/* ---------- MISSING STAGE POPUP ---------- */}
-      <Modal
-        open={missingModalOpen}
-        onOk={() => setMissingModalOpen(false)}
-        onCancel={() => setMissingModalOpen(false)}
-        title="⚠️ Missing Stage Detected"
-        okText="OK"
-        cancelButtonProps={{ style: { display: "none" } }}
-      >
-        <p style={{ marginBottom: 8 }}>
-          The sequence was broken. The following stage(s) were not scanned:
-        </p>
-        <ul style={{ marginBottom: 0 }}>
-          {missingStages.map((s) => (
-            <li key={s.index}>
-              Stage {s.index + 1}: <strong>{s.label}</strong>
-            </li>
-          ))}
-        </ul>
-        <p style={{ marginTop: 12, marginBottom: 0, color: "#64748b", fontSize: 12.5 }}>
-          Please scan the missing stage(s) - they're marked red on the left rail.
-        </p>
-      </Modal>
-
       {/* ---------- BODY (fills remaining height, no scroll) ---------- */}
       <div style={{ flex: 1, display: "flex", padding: 14, gap: 14, minHeight: 0 }}>
         {/* Left rail - production scanning stages */}
@@ -517,20 +563,28 @@ const handleSaveGroup = async () => {
           }}
         >
           <Space direction="vertical" size={6} style={{ width: "100%", flex: 1 }}>
+            {STAGES.length === 0 && (
+              <Text type="secondary" style={{ fontSize: 11, padding: "6px 4px" }}>
+                Select an ERP number to load stages.
+              </Text>
+            )}
             {STAGES.map((label, index) => {
               const st = stageStatus[index];
               const isFlashing = flashIndices.has(index);
+              const isMyStage = index === assignedStageIndex;
 
-              // Default (non-flashing) look:
-              //   - pending -> plain white, shows the stage number
-              //   - done    -> plain white/neutral, shows a blue checkmark
-              //                (the blue FILL only appears temporarily
-              //                during the flash, not permanently after)
-              //   - error   -> stays solid red (permanent, needs fixing)
               let bg = "#ffffff";
               let border = "#e3e8ef";
               let color = "#1b2430";
               let iconColor = "#3a6d95";
+
+              // Persistent "this is your stage" marker — applies whenever the
+              // tile isn't already done/error, so the operator can always
+              // find their station regardless of scan progress.
+              if (isMyStage && st !== "done" && st !== "error") {
+                bg = "#eaf2f8";
+                border = "#3a6d95";
+              }
 
               if (st === "error") {
                 bg = "#d1483c";
@@ -541,7 +595,6 @@ const handleSaveGroup = async () => {
               }
 
               if (isFlashing) {
-                // temporary blue flash - only visible during the blink itself
                 bg = "#3a6d95";
                 border = "#3a6d95";
                 color = "#ffffff";
@@ -587,7 +640,19 @@ const handleSaveGroup = async () => {
                       index + 1
                     )}
                   </span>
-                  <span>{label}</span>
+                  <span style={{ flex: 1 }}>{label}</span>
+                  {isMyStage && st !== "done" && st !== "error" && (
+                    <span
+                      style={{
+                        fontSize: 8,
+                        fontWeight: 700,
+                        color: "#3a6d95",
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      YOU
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -650,25 +715,9 @@ const handleSaveGroup = async () => {
                   value={form.wipBarCode}
                   onChange={updateField("wipBarCode")}
                   onPressEnter={handleWipCodeScanned}
-                  // onBlur={() => setTimeout(() => wipCodeRef.current?.focus(), 50)}
                   suffix={<ScanOutlined style={{ color: "#3a6d95" }} />}
                 />
               </Col>
-
-              {stageFlow?.scan_mode === "GROUP_CREATE" && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -6 }}>
-                    <Tag color="orange">{pendingGroupScans.length} scanned, pending group save</Tag>
-                    <Button
-                      type="primary"
-                      size="small"
-                      disabled={!pendingGroupScans.length}
-                      loading={savingGroup}
-                      onClick={handleSaveGroup}
-                    >
-                      Save Group
-                    </Button>
-                  </div>
-                )}
 
               <Col span={8}>
                 <FieldLabel text="Item Planned" />
@@ -714,6 +763,51 @@ const handleSaveGroup = async () => {
                 <FieldLabel text="Done Qty" />
                 <Input value={form.doneQty} disabled={!isEditable} onChange={updateField("doneQty")} />
               </Col>
+
+              {/* ---- GROUP_CREATE staging area: local-only until "Save Group" ---- */}
+              {stageFlow?.scan_mode === "GROUP_CREATE" && (
+                <Col span={24}>
+                  <div
+                    style={{
+                      marginTop: 6,
+                      padding: 12,
+                      border: "1px solid #e3e8ef",
+                      borderRadius: 8,
+                      background: "#fafbfc",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: pendingGroupScans.length ? 10 : 0 }}>
+                      <Tag color="orange">{pendingGroupScans.length} scanned, pending group save</Tag>
+                      <Button
+                        type="primary"
+                        size="small"
+                        disabled={!pendingGroupScans.length}
+                        loading={savingGroup}
+                        onClick={handleSaveGroup}
+                      >
+                        Save Group
+                      </Button>
+                    </div>
+
+                    {pendingGroupScans.length > 0 && (
+                      <Space size={[6, 6]} wrap>
+                        {pendingGroupScans.map((s) => (
+                          <Tag
+                            key={s.tempId}
+                            closable
+                            onClose={(e) => {
+                              e.preventDefault();
+                              handleRemovePendingScan(s.tempId);
+                            }}
+                          >
+                            {s.code}
+                          </Tag>
+                        ))}
+                      </Space>
+                    )}
+                  </div>
+                </Col>
+              )}
             </Row>
           </Card>
         </div>
