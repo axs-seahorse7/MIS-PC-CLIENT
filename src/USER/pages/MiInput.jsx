@@ -29,7 +29,7 @@ const { Text, Title } = Typography;
 
 // Status -> Tag color map
 const STATUS_COLOR = {
-  "SAVED/ACCEPTED": "green",
+  SUCCESS: "green",
   PENDING: "orange",
   REJECTED: "red",
   DRAFT: "default",
@@ -43,7 +43,6 @@ const QUALITY_OPTIONS = [
 ];
 
 const EMPTY_FORM = {
-  entryNo: "",
   productId: null,
   erpNo: null,
   wipBarCode: "",
@@ -60,7 +59,7 @@ const EMPTY_FORM = {
 
 export default function MIInput() {
   const [mode, setMode] = useState("view"); // "view" | "new" | "edit"
-  const [status, setStatus] = useState("SAVED/ACCEPTED");
+  const [status, setStatus] = useState("SUCCESS");
 
   // ---- Logged-in operator's assigned stage (from admin dashboard) ----
   const { user } = useAuth();
@@ -78,6 +77,9 @@ export default function MIInput() {
   const [groupId, setGroupId] = useState(null);
   const [serialNo, setSerialNo] = useState(null);
 
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
+
   // "missing stage" inline banner state
   const [missingStages, setMissingStages] = useState([]); // [{ index, label }]
 
@@ -86,11 +88,14 @@ export default function MIInput() {
 
   const [form, setForm] = useState(EMPTY_FORM);
 
+  
+
   useEffect(() => {
     const fetchProducts = async () => {
       try {
         setProductsLoading(true);
         const res = await api.get("/products/all");
+        console.log("Fetched products:", res?.data);
         setProducts(res?.data?.data || res?.data || []);
       } catch (err) {
         console.error("Error fetching products:", err);
@@ -102,10 +107,40 @@ export default function MIInput() {
     fetchProducts();
   }, []);
 
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => {
+        setErrorMessage(null)
+        setSuccessMessage(null)
+      }, 10000);
+      return () => clearTimeout(timer);
+    } 
+
+  }, [errorMessage, successMessage]);
+
+  useEffect(() => {
+    async function fetchProductionTargets() {
+      const res = await api.get(`/production-targets/by-line-and-product/${user?.line?.id}/${form.productId}`);
+      console.log("Fetched production targets:", res?.data);
+      setForm((f) => ({ ...f, planQty: res?.data?.data?.[0]?.target_quantity || 0 }));
+    }
+
+    fetchProductionTargets();
+}, [user?.line?.id, form.productId]);
+
+  //  Generate a UNIQUE id where the code segment is is e.g. AB-TODAY DATE-PRODUCT ID - SERIAL NO. 
+  const generateUniqueIdPlanNo = () => {
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, "")
+    const currentTimeInMs = Date.now().toString().slice(-6); 
+    const productId = form.productId || "UNKNOWN";
+    const productFirst3 = form.productName ? form.productName.slice(0, 3).toUpperCase() : "UNK";
+    return `${productFirst3}-${today}-${productId}-${currentTimeInMs}`;
+  };
+
   // ---- GROUP_CREATE staging: scans collected here are LOCAL ONLY.
   // Nothing hits scan_history until "Save Group" is clicked, at which
   // point the whole batch of codes is sent to the server together.
-  const [pendingGroupScans, setPendingGroupScans] = useState([]); // [{ code, tempId }]
+  const [pendingGroupScans, setPendingGroupScans] = useState([]); 
   const [savingGroup, setSavingGroup] = useState(false);
 
   // fetch stage-flow info when product changes
@@ -124,12 +159,12 @@ export default function MIInput() {
         const res = await api.get(`/product-stage-flow/${form.productId}`);
         const payload = res?.data || [];
         const rows = Array.isArray(payload) ? payload : payload ? [payload] : [];
+        console.log("Fetched stage flow rows:", rows);
 
         const sorted = [...rows].sort((a, b) => a.sequence_no - b.sequence_no);
         setStageFlowRows(sorted);
 
-        // Confirm this matches your real /auth/me shape — using stage.id here
-        // per your latest user object.
+        
         const matched = sorted.find((r) => r.stage_id === user?.stage?.id) || null;
 
         if (!matched) {
@@ -143,8 +178,9 @@ export default function MIInput() {
         setGroupId(null);
         setSerialNo(null);
       } catch (err) {
-        message.error("Failed to load stage flow for this product");
+        setErrorMessage("Failed to load stage flow for this product");
       }
+
     };
 
     fetchStageFlow();
@@ -158,6 +194,10 @@ export default function MIInput() {
       productId,
       erpNo: selected?.erp_no || "",
       productName: selected?.name || "",
+      station: user?.stage?.name || "",
+      itemPlanned: selected?.erp_no || "",
+      date: new Date().toISOString().slice(0, 10), 
+      machineName: user?.line?.name || "",
     }));
   };
 
@@ -194,67 +234,66 @@ export default function MIInput() {
     await flashTile(newIndex, 2);
   };
 
-  const handleStageScanned = async (index) => {
-    if (index !== assignedStageIndex) {
-      message.error(
-        `Invalid: "${STAGES[index]}" is not your assigned stage. You are assigned to "${STAGES[assignedStageIndex]}".`
-      );
-      return;
-    }
+  const handleStageScanned = (index, data) => {
+    if (!data.success) {
+      switch (data.errorType) {
+        case "DUPLICATE_STAGE":
+          setStageStatus((prev) => {
+            const next = [...prev];
+            if (index >= 0) next[index] = "done";
+            return next;
+          });
+          setErrorMessage(data.message);
+          break;
 
-    const expectedNext = lastConfirmed + 1;
+        case "ALREADY_COMPLETED":
+          setErrorMessage(data.message);
+          break;
 
-    // 1. duplicate scan
-    if (stageStatus[index] === "done") {
-      message.warning(`Duplicate scan: "${STAGES[index]}" is already completed.`);
-      return;
-    }
+        case "BACKWARD_SCAN":
+          setErrorMessage(data.message);
+          break;
 
-    // 4. fixing a previously flagged/missing stage
-    if (stageStatus[index] === "error") {
-      setStageStatus((prev) => {
-        const next = [...prev];
-        next[index] = "done";
-        return next;
-      });
-      if (index > lastConfirmed) setLastConfirmed(index);
-      setMissingStages((prev) => prev.filter((s) => s.index !== index));
-      await flashTile(index, 2);
-      return;
-    }
+        case "MISSING_STAGES": {
+          const missingList = (data.missing || []).map((m) => ({
+            index: m.sequence_no - 1,
+            label: m.stage_name,
+          }));
 
-    // 2. correct, in-sequence scan
-    if (index === expectedNext) {
-      if (lastConfirmed === -1) {
-        // first scan of this entry -> system generates Group ID + Serial No
-        setGroupId(`GRP-${Date.now().toString().slice(-6)}`);
-        setSerialNo(form.wipBarCode || "—");
+          setStageStatus((prev) => {
+            const next = [...prev];
+            missingList.forEach((m) => {
+              if (m.index >= 0 && m.index < next.length) next[m.index] = "error";
+            });
+            return next;
+          });
+          setMissingStages(missingList);
+          setErrorMessage(data.message);
+
+          if (missingResetTimeoutRef.current) clearTimeout(missingResetTimeoutRef.current);
+          missingResetTimeoutRef.current = setTimeout(clearMissingHighlight, 10000);
+          break;
+        }
+
+        default:
+          console.warn("submitScan response missing errorType:", data);
+          setErrorMessage(data.message || "Scan failed.");
       }
-      setStageStatus((prev) => {
-        const next = [...prev];
-        next[index] = "done";
-        return next;
-      });
-      setLastConfirmed(index);
-      await playConfirmAnimation(index);
       return;
     }
 
-    // 3. sequence broken - one or more stages skipped
-    if (index > expectedNext) {
-      const missing = [];
-      for (let i = expectedNext; i < index; i++) {
-        missing.push({ index: i, label: STAGES[i] });
-      }
-      setStageStatus((prev) => {
-        const next = [...prev];
-        for (let i = expectedNext; i <= index; i++) next[i] = "error";
-        return next;
-      });
-      setLastConfirmed(index);
-      setMissingStages(missing);
-      return;
+    // success
+    setStageStatus((prev) => {
+      const next = [...prev];
+      next[index] = "done";
+      return next;
+    });
+    setLastConfirmed(index);
+    if (!groupId) {
+      setGroupId(data.group_id ?? `GRP-${Date.now().toString().slice(-6)}`);
+      setSerialNo(form.wipBarCode || "—");
     }
+    playConfirmAnimation(index);
   };
 
   const wipCodeRef = useRef(null);
@@ -263,7 +302,6 @@ export default function MIInput() {
   useEffect(() => {
     wipCodeRef.current?.focus();
   }, []);
-
   // clear any pending auto-reset if the component unmounts mid-timeout
   useEffect(() => {
     return () => {
@@ -278,10 +316,19 @@ export default function MIInput() {
         scanned_value: code,
         product_id: form.productId,
       });
-      return res.data; // { success, message, data: { id, sequence_no, scan_mode } }
+      setErrorMessage(null);
+      setSuccessMessage(`${code} scan submitted successfully.`);
+      return res.data; // { success: true, data: { sequence_no, ... } }
     } catch (err) {
-      message.error(err?.response?.data?.message || "Scan submission failed");
-      return null;
+      // Return the server's actual error payload (errorType, missing, message)
+      // instead of discarding it — this is what was getting lost.
+      return (
+        err?.response?.data || {
+          success: false,
+          errorType: "NETWORK_ERROR",
+          message: "Scan submission failed",
+        }
+      );
     }
   };
 
@@ -289,12 +336,19 @@ export default function MIInput() {
     const code = form.wipBarCode.trim();
     if (!code) return;
 
+    clearMissingHighlight(); 
+    
+    if (mode !== "view") {
+      setErrorMessage("Cannot scan while in New/Edit mode. Save your changes first.");
+      return;
+    }
+
     if (!form.productId) {
-      message.warning("Select an ERP number before scanning.");
+      setErrorMessage("Select an ERP number before scanning.");
       return;
     }
     if (!stageFlow) {
-      message.warning("Stage flow not loaded for this product yet.");
+      setErrorMessage("Stage flow not loaded for this product yet.");
       return;
     }
 
@@ -307,20 +361,22 @@ export default function MIInput() {
       // ---- LOCAL ONLY: no server call here. Item just gets staged. ----
       setPendingGroupScans((prev) => {
         if (prev.some((s) => s.code === code)) {
-          message.warning(`"${code}" is already in the pending list.`);
+          setErrorMessage(`"${code}" is already in the pending list.`);
           return prev;
         }
         const next = [...prev, { code, tempId: `${code}-${Date.now()}` }];
-        message.success(`Scan added (${next.length} pending). Save group when ready.`);
+        setErrorMessage(`Scan added (${next.length} pending). Save group when ready.`);
         return next;
       });
       return;
     }
 
-    // SINGLE or GROUP_SCAN: save directly, as before.
+    // SINGLE or GROUP_SCAN: save directly.
     const result = await submitScanToServer(code);
-    if (!result || !result.success) return;
-    handleStageScanned(result.data.sequence_no - 1);
+    const resultIndex = result?.data?.sequence_no
+      ? result.data.sequence_no - 1
+      : assignedStageIndex; // fall back to the operator's own stage for error highlighting
+    handleStageScanned(resultIndex, result);
   };
 
   // remove a mistakenly-scanned item from the pending GROUP_CREATE list
@@ -333,7 +389,7 @@ export default function MIInput() {
   // together in one transaction.
   const handleSaveGroup = async () => {
     if (!pendingGroupScans.length) {
-      message.warning("No pending scans to group.");
+      setErrorMessage("No pending scans to group.");
       return;
     }
     setSavingGroup(true);
@@ -343,16 +399,16 @@ export default function MIInput() {
         product_id: form.productId,
       });
       if (!res?.data?.success) {
-        message.error(res?.data?.message || "Failed to save group");
+        setErrorMessage(res?.data?.message || "Failed to save group");
         return;
       }
-      message.success(`Group created with ${pendingGroupScans.length} items`);
+      setErrorMessage(null);
+      setSuccessMessage("Group saved successfully.");
       setPendingGroupScans([]);
       await handleStageScanned(assignedStageIndex);
+      setTimeout(() => wipCodeRef.current?.focus(), 50); 
 
-      // GROUP_CREATE tiles represent "a group was just saved", not permanent
-      // progress on a single item — reset the tile so it's ready to animate
-      // the next PCB group instead of staying stuck on "done".
+   
       if (groupResetTimeoutRef.current) clearTimeout(groupResetTimeoutRef.current);
       groupResetTimeoutRef.current = setTimeout(() => {
         setStageStatus((prev) => {
@@ -366,7 +422,7 @@ export default function MIInput() {
         groupResetTimeoutRef.current = null;
       }, 3000);
     } catch (err) {
-      message.error(err?.response?.data?.message || "Failed to save group");
+      setErrorMessage(err?.response?.data?.message || "Failed to save group");
     } finally {
       setSavingGroup(false);
     }
@@ -384,7 +440,7 @@ export default function MIInput() {
     "PS11400",
     "FIND SFN",
   ];
-  const [activeModule, setActiveModule] = useState(MODULE_BUTTONS[0]);
+
 
   const isEditable = mode === "new" || mode === "edit";
 
@@ -413,21 +469,77 @@ export default function MIInput() {
     setStatus("PENDING");
   };
 
-  // ---- Save: does NOT hit the server. Scans already persisted themselves
-  // (SINGLE/GROUP_SCAN on each scan, GROUP_CREATE via "Save Group"). This
-  // button only locks the form fields back down and returns focus to the
-  // barcode input so the operator can keep scanning the next unit. ----
+  
   const handleSave = () => {
+    if(!form.productId ) {
+      setErrorMessage("Cannot save: select a product first.");
+      return;
+    }
+    if(!form.planQty || form.planQty <= 0) {
+      setErrorMessage("Cannot save: enter a valid plan quantity.");
+      return;
+    }
     setMode("view");
     setStatus("SAVED/ACCEPTED");
     setTimeout(() => wipCodeRef.current?.focus(), 50);
+    const uniqueId = generateUniqueIdPlanNo();
+    form.planNo = uniqueId;
   };
 
   const handleCancel = () => {
     setMode("view");
+    setForm(EMPTY_FORM);
   };
 
   const todayDonePercent = ((2055 / 5000) * 100).toFixed(1);
+
+
+  const missingResetTimeoutRef = useRef(null);
+
+  const clearMissingHighlight = () => {
+    if (missingResetTimeoutRef.current) {
+      clearTimeout(missingResetTimeoutRef.current);
+      missingResetTimeoutRef.current = null;
+    }
+    setMissingStages((prevMissing) => {
+      if (prevMissing.length) {
+        const indexesToReset = new Set(prevMissing.map((m) => m.index));
+        setStageStatus((prevStatus) =>
+          prevStatus.map((s, i) => (indexesToReset.has(i) && s === "error" ? "pending" : s))
+        );
+      }
+      return [];
+    });
+  };
+
+  // cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (missingResetTimeoutRef.current) clearTimeout(missingResetTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const KEEP_FOCUS_SELECTORS =
+      'input, textarea, .ant-select-selector, .ant-select-dropdown, .ant-select-item, .ant-picker, .ant-picker-dropdown';
+
+    const handleDocumentClick = (e) => {
+      const wipInputEl = wipCodeRef.current?.input;
+      if (!wipInputEl) return;
+
+      const target = e.target;
+      if (wipInputEl.contains(target)) return; // already the field itself
+      if (target.closest(KEEP_FOCUS_SELECTORS)) return; // let other real inputs keep focus
+
+      // Buttons (New/Edit/Save Group/Alert close/Tag close, etc.) still fire
+      // their own React onClick first — this native document listener runs
+      // after it in the bubble phase — so we just reclaim focus afterward.
+      window.setTimeout(() => wipInputEl.focus(), 0);
+    };
+
+    document.addEventListener("click", handleDocumentClick);
+    return () => document.removeEventListener("click", handleDocumentClick);
+  }, []);
 
   return (
     <div
@@ -439,9 +551,16 @@ export default function MIInput() {
         overflow: "hidden",
       }}
     >
+      <style>{`
+        @keyframes missingStagePulse {
+          0%, 100% { background-color: #d1483c; border-color: #d1483c; }
+          50% { background-color: #ff8a75; border-color: #ff8a75; }
+        }
+        .missing-stage-blink { animation: missingStagePulse 0.9s ease-in-out infinite; }
+      `}</style>
       {/* ---------- ACTION BAR (fixed, directly below the main Navbar) ---------- */}
       <div
-        style={{
+        style={{ 
           height: 56,
           flexShrink: 0,
           background: "#ffffff",
@@ -452,19 +571,13 @@ export default function MIInput() {
           padding: "0 20px",
         }}
       >
-        <Space size={6} wrap={false}>
-          {MODULE_BUTTONS.map((item) => (
-            <Button
-              key={item}
-              size="small"
-              type={activeModule === item ? "primary" : "default"}
-              onClick={() => setActiveModule(item)}
-              style={{ fontSize: 11 }}
-            >
-              {item}
-            </Button>
-          ))}
+
+        <Space size={8}>
+          <Title level={5} style={{ margin: 0, color: "#1b2430" }}>
+            MI Input
+          </Title>
         </Space>
+      
 
         <Space size={8}>
           <Button icon={<PlusOutlined />} onClick={handleNew} disabled={isEditable}>
@@ -519,31 +632,12 @@ export default function MIInput() {
         }}
       >
         <Space size={14} align="center">
-          <Title level={5} style={{ margin: 0, color: "#1b2430" }}>
-            MI Input
-          </Title>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            STATUS
+            STATUS : 
           </Text>
-          <Tag color={STATUS_COLOR[status] || "default"}>{status}</Tag>
+         {errorMessage && <Tag color="orange">{errorMessage || status}</Tag>}
+         {successMessage && <Tag color="green">{successMessage}</Tag>}
 
-          {groupId && (
-            <>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                GROUP ID
-              </Text>
-              <Tag color="blue">{groupId}</Tag>
-            </>
-          )}
-
-          {serialNo && (
-            <>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                SERIAL NO
-              </Text>
-              <Tag color="purple">{serialNo}</Tag>
-            </>
-          )}
         </Space>
       </div>
 
@@ -568,10 +662,13 @@ export default function MIInput() {
                 Select an ERP number to load stages.
               </Text>
             )}
+
             {STAGES.map((label, index) => {
               const st = stageStatus[index];
               const isFlashing = flashIndices.has(index);
               const isMyStage = index === assignedStageIndex;
+                const isMissingBlinking = missingStages.some((m) => m.index === index); // add this
+
 
               let bg = "#ffffff";
               let border = "#e3e8ef";
@@ -604,6 +701,7 @@ export default function MIInput() {
               return (
                 <div
                   key={label}
+                    className={isMissingBlinking ? "missing-stage-blink" : undefined}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -682,15 +780,12 @@ export default function MIInput() {
             style={{ border: "1px solid #e3e8ef", borderRadius: 10, flex: 1, minHeight: 0, overflow: "hidden" }}
           >
             <Row gutter={[16, 14]}>
-              <Col span={8}>
-                <FieldLabel text="Entry No" />
-                <Input value={form.entryNo} disabled={!isEditable} onChange={updateField("entryNo")} />
-              </Col>
-              <Col span={8}>
-                <FieldLabel text="Select ERP Number" />
+             
+              <Col span={12}>
+                <FieldLabel text="Select product" />
                 <Select
                   style={{ width: "100%" }}
-                  placeholder="Search ERP number or product"
+                  placeholder="Search product..."
                   value={form.productId}
                   disabled={!isEditable}
                   loading={productsLoading}
@@ -707,11 +802,12 @@ export default function MIInput() {
                   onChange={handleErpSelect}
                 />
               </Col>
-              <Col span={8}>
+              <Col span={12}>
                 <FieldLabel text="WIP Bar Code" />
                 <Input
+                  disabled={!form.productId || mode !== "view"}
                   ref={wipCodeRef}
-                  placeholder="Scan QR / enter code"
+                  placeholder={!form.productId ? "Select a product first" : "Scan QR / enter code"}
                   value={form.wipBarCode}
                   onChange={updateField("wipBarCode")}
                   onPressEnter={handleWipCodeScanned}
@@ -721,7 +817,7 @@ export default function MIInput() {
 
               <Col span={8}>
                 <FieldLabel text="Item Planned" />
-                <Input value={form.itemPlanned} disabled={!isEditable} onChange={updateField("itemPlanned")} />
+                <Input disabled value={form.itemPlanned} />
               </Col>
               <Col span={8}>
                 <FieldLabel text="Date" />
@@ -729,7 +825,7 @@ export default function MIInput() {
               </Col>
               <Col span={8}>
                 <FieldLabel text="Plan No" />
-                <Input value={form.planNo} disabled={!isEditable} onChange={updateField("planNo")} />
+                <Input value={form.planNo} disabled={!isEditable} onChange={updateField("planNo")} disabled />
               </Col>
 
               <Col span={8}>
@@ -744,16 +840,16 @@ export default function MIInput() {
               </Col>
               <Col span={8}>
                 <FieldLabel text="Machine Name" />
-                <Input value={form.machineName} disabled={!isEditable} onChange={updateField("machineName")} />
+                <Input value={form.machineName} disabled={!isEditable}/>
               </Col>
               <Col span={8}>
                 <FieldLabel text="Station" />
-                <Input value={form.station} disabled={!isEditable} onChange={updateField("station")} />
+                <Input value={form.station} disabled onChange={updateField("station")} />
               </Col>
 
               <Col span={16}>
                 <FieldLabel text="Product Name" />
-                <Input value={form.productName} disabled={!isEditable} onChange={updateField("productName")} />
+                <Input value={form.productName} disabled  />
               </Col>
               <Col span={4}>
                 <FieldLabel text="Plan Qty" />
@@ -761,7 +857,7 @@ export default function MIInput() {
               </Col>
               <Col span={4}>
                 <FieldLabel text="Done Qty" />
-                <Input value={form.doneQty} disabled={!isEditable} onChange={updateField("doneQty")} />
+                <Input value={form.doneQty} />
               </Col>
 
               {/* ---- GROUP_CREATE staging area: local-only until "Save Group" ---- */}

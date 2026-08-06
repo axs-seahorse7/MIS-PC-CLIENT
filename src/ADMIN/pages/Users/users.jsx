@@ -359,7 +359,7 @@ const Users = () => {
               label="Password"
               rules={[
                 { required: true, message: "Please enter a password" },
-                { min: 6, message: "Password must be at least 6 characters" },
+                { min: 4, message: "Password must be at least 4 characters" },
               ]}
               style={{ marginBottom: 16 }}
             >

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Form, Select, InputNumber, Switch, Input, Row, Col, Tag, Alert, message } from "antd";
+import { Form, Select, InputNumber, Switch, Input, Row, Col, Tag, Alert, message, Modal, Descriptions } from "antd";
 
 import MasterHeader from "../Masters/components/MasterHeader";
 import MasterToolbar from "../Masters/components/MasterToolbar";
@@ -28,6 +28,13 @@ const EXTERNAL_SOURCE_TYPE_OPTIONS = [
   { value: "API", label: "External API (Coming Soon)" },
 ];
 
+const EXTERNAL_MACHINE_TYPE_OPTIONS = [
+  { value: "ICT", label: "ICT" },
+  { value: "FCT", label: "FCT" },
+  { value: "HIPT", label: "HIPT" },
+  { value: "AOI", label: "AOI" },
+];
+
 const FILE_EXTENSION_OPTIONS = [
   { value: ".csv", label: ".csv" },
   { value: ".xlsx", label: ".xlsx" },
@@ -36,6 +43,11 @@ const FILE_EXTENSION_OPTIONS = [
   { value: ".txt", label: ".txt" },
   { value: ".json", label: ".json" },
 ];
+
+const SOURCE_TYPE_LABEL = {
+  LOCAL_FILE: "Local File System",
+  API: "External API",
+};
 
 const formatCreatedDate = (dateInput) =>
   new Date(dateInput || Date.now()).toLocaleDateString("en-GB", {
@@ -59,7 +71,9 @@ const parseApiConfig = (raw) => {
 
 // Server sends/expects { product_id, stage_id, sequence_no, scan_mode,
 // is_external_dependency, external_source, external_source_type,
-// external_folder_path, external_poll_interval_minutes, external_api_config }.
+// external_machine_type, external_folder_path,
+// external_poll_interval_minutes, external_api_config, machine_code }.
+// machine_code is server-generated on save and is never sent by the client.
 // productOptions / stageOptions (fetched live) resolve id -> name for display.
 const normalizeFlow = (item, productOptions = [], stageOptions = []) => {
   const apiConfig = parseApiConfig(item.external_api_config);
@@ -75,6 +89,7 @@ const normalizeFlow = (item, productOptions = [], stageOptions = []) => {
     isExternalDependency: !!item.is_external_dependency,
     externalSource: item.external_source || "",
     externalSourceType: item.external_source_type || null,
+    externalMachineType: item.external_machine_type || null,
     externalFolderPath: item.external_folder_path || "",
     externalPollIntervalMinutes: item.external_poll_interval_minutes ?? null,
     externalFileExtensions: item.external_file_extensions
@@ -83,6 +98,7 @@ const normalizeFlow = (item, productOptions = [], stageOptions = []) => {
     apiEndpoint: apiConfig?.endpoint || "",
     apiPayloadSample: apiConfig?.payloadSample || "",
     apiResultField: apiConfig?.resultField || "",
+    machineCode: item.machine_code || item.machineCode || null,
     createdDate: formatCreatedDate(item.created_at || item.createdAt || item.createdDate),
   };
 };
@@ -106,6 +122,10 @@ const ProductStage = () => {
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Read-only "view details" popup, opened by clicking the External
+  // Dependency cell in the table — separate from the edit form modal.
+  const [machineDetailsTarget, setMachineDetailsTarget] = useState(null);
 
   useEffect(() => {
     loadInitialData();
@@ -148,7 +168,8 @@ const ProductStage = () => {
     return (
       item.productName.toLowerCase().includes(query) ||
       item.stageName.toLowerCase().includes(query) ||
-      String(item.sequenceNo).includes(query)
+      String(item.sequenceNo).includes(query) ||
+      (item.machineCode || "").toLowerCase().includes(query)
     );
   });
 
@@ -160,6 +181,7 @@ const ProductStage = () => {
       isExternalDependency: false,
       externalSource: undefined,
       externalSourceType: undefined,
+      externalMachineType: undefined,
       externalFolderPath: undefined,
       externalPollIntervalMinutes: undefined,
       externalFileExtensions: undefined,
@@ -180,6 +202,7 @@ const ProductStage = () => {
       isExternalDependency: record.isExternalDependency,
       externalSource: record.externalSource,
       externalSourceType: record.externalSourceType,
+      externalMachineType: record.externalMachineType,
       externalFolderPath: record.externalFolderPath,
       externalPollIntervalMinutes: record.externalPollIntervalMinutes,
       externalFileExtensions: record.externalFileExtensions,
@@ -210,6 +233,7 @@ const ProductStage = () => {
       is_external_dependency: isExternal,
       external_source: isExternal ? values.externalSource : null,
       external_source_type: isExternal ? values.externalSourceType : null,
+      external_machine_type: isExternal ? values.externalMachineType : null,
       external_folder_path: isLocalFile ? values.externalFolderPath : null,
       external_poll_interval_minutes: isLocalFile ? values.externalPollIntervalMinutes : null,
       external_file_extensions:
@@ -223,6 +247,7 @@ const ProductStage = () => {
             resultField: values.apiResultField || null,
           })
         : null,
+      // machine_code is intentionally NOT sent — the server generates it on save.
     };
 
     try {
@@ -281,15 +306,30 @@ const ProductStage = () => {
       title: "External Dependency",
       dataIndex: "isExternalDependency",
       key: "isExternalDependency",
-      render: (v, record) => {
-        if (!v) return <Tag color="default">No</Tag>;
-        return (
-          <Tag color="volcano">
+      render: (v, record) =>
+        v ? (
+          <Tag
+            color="volcano"
+            style={{ cursor: "pointer" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMachineDetailsTarget(record);
+            }}
+          >
             {record.externalSource || "Yes"}
-            {record.externalSourceType ? ` (${record.externalSourceType === "LOCAL_FILE" ? "Local File" : "API"})` : ""}
+            {record.externalMachineType ? ` [${record.externalMachineType}]` : ""}
+            {record.externalSourceType ? ` (${SOURCE_TYPE_LABEL[record.externalSourceType] || record.externalSourceType})` : ""}
           </Tag>
-        );
-      },
+        ) : (
+          <Tag color="default">No</Tag>
+        ),
+    },
+    {
+      title: "Machine Code",
+      dataIndex: "machineCode",
+      key: "machineCode",
+      render: (v) =>
+        v ? <Tag color="blue">{v}</Tag> : <span style={{ color: "#94A3B8" }}>—</span>,
     },
     { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
   ];
@@ -308,7 +348,7 @@ const ProductStage = () => {
       <MasterToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by product, stage or sequence number..."
+        searchPlaceholder="Search by product, stage, sequence number or machine code..."
       />
 
       <MasterTable
@@ -402,8 +442,8 @@ const ProductStage = () => {
               {isExternalDependency && (
                 <Form.Item
                   name="externalSource"
-                  label="External Source Name"
-                  rules={[{ required: true, message: "Please enter the external source name" }]}
+                  label="External Machine Name"
+                  rules={[{ required: true, message: "Please enter the external machine name" }]}
                   style={{ marginBottom: 16 }}
                 >
                   <Input placeholder="e.g. Vendor QC System" />
@@ -415,7 +455,17 @@ const ProductStage = () => {
           {isExternalDependency && (
             <>
               <Row gutter={16}>
-                <Col span={24}>
+                <Col span={12}>
+                  <Form.Item
+                    name="externalMachineType"
+                    label="External Machine Type"
+                    rules={[{ required: true, message: "Please select a machine type" }]}
+                    style={{ marginBottom: 16 }}
+                  >
+                    <Select placeholder="Select machine type" options={EXTERNAL_MACHINE_TYPE_OPTIONS} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
                   <Form.Item
                     name="externalSourceType"
                     label="External Source Type"
@@ -513,6 +563,73 @@ const ProductStage = () => {
         onCancel={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
       />
+
+      <Modal
+        open={!!machineDetailsTarget}
+        title="External Machine Details"
+        onCancel={() => setMachineDetailsTarget(null)}
+        footer={null}
+        width={640}
+        destroyOnClose
+      >
+        {machineDetailsTarget && (
+          <Descriptions column={2} bordered size="small">
+            <Descriptions.Item label="Product" span={2}>
+              {machineDetailsTarget.productName} → {machineDetailsTarget.stageName}
+            </Descriptions.Item>
+            <Descriptions.Item label="Machine Name">
+              {machineDetailsTarget.externalSource || "-"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Machine Type">
+              {machineDetailsTarget.externalMachineType || "-"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Machine Code" span={2}>
+              {machineDetailsTarget.machineCode ? (
+                <Tag color="blue">{machineDetailsTarget.machineCode}</Tag>
+              ) : (
+                <span style={{ color: "#94A3B8" }}>Not yet assigned</span>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="Source Type" span={2}>
+              {SOURCE_TYPE_LABEL[machineDetailsTarget.externalSourceType] || "-"}
+            </Descriptions.Item>
+
+            {machineDetailsTarget.externalSourceType === "LOCAL_FILE" && (
+              <>
+                <Descriptions.Item label="Folder Path" span={2}>
+                  {machineDetailsTarget.externalFolderPath || "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Read Interval">
+                  {machineDetailsTarget.externalPollIntervalMinutes
+                    ? `${machineDetailsTarget.externalPollIntervalMinutes} min`
+                    : "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="File Extensions">
+                  {machineDetailsTarget.externalFileExtensions?.length
+                    ? machineDetailsTarget.externalFileExtensions.join(", ")
+                    : "-"}
+                </Descriptions.Item>
+              </>
+            )}
+
+            {machineDetailsTarget.externalSourceType === "API" && (
+              <>
+                <Descriptions.Item label="API Endpoint" span={2}>
+                  {machineDetailsTarget.apiEndpoint || "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Result Field" span={2}>
+                  {machineDetailsTarget.apiResultField || "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Sample Payload" span={2}>
+                  <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                    {machineDetailsTarget.apiPayloadSample || "-"}
+                  </pre>
+                </Descriptions.Item>
+              </>
+            )}
+          </Descriptions>
+        )}
+      </Modal>
     </div>
   );
 };
