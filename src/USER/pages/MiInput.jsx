@@ -22,6 +22,7 @@ import {
   CheckCircleFilled,
   CloseCircleFilled,
 } from "@ant-design/icons";
+import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { useAuth } from "../../Authentication/context/AuthContext"; // adjust path if your folder depth differs
 import api from "../../services/API/api";
 
@@ -83,12 +84,31 @@ export default function MIInput() {
   // "missing stage" inline banner state
   const [missingStages, setMissingStages] = useState([]); // [{ index, label }]
 
+  // Non-blocking glass popup for "already scanned" / "missing stage" errors.
+  // Purely decorative — no focusable elements, pointer-events: none — so the
+  // WIP bar code field never loses focus while this is on screen.
+  const [errorPopup, setErrorPopup] = useState(null); // { type: 'DUPLICATE' | 'MISSING', title, message }
+  const errorPopupTimeoutRef = useRef(null);
+
+  const showErrorPopup = (popup) => {
+    if (errorPopupTimeoutRef.current) clearTimeout(errorPopupTimeoutRef.current);
+    setErrorPopup(popup);
+    errorPopupTimeoutRef.current = setTimeout(() => {
+      setErrorPopup(null);
+      errorPopupTimeoutRef.current = null;
+    }, 3000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (errorPopupTimeoutRef.current) clearTimeout(errorPopupTimeoutRef.current);
+    };
+  }, []);
+
   const [products, setProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(true);
 
   const [form, setForm] = useState(EMPTY_FORM);
-
-  
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -244,10 +264,20 @@ export default function MIInput() {
             return next;
           });
           setErrorMessage(data.message);
+          showErrorPopup({
+            type: "DUPLICATE",
+            title: "Already Scanned",
+            message: data.message,
+          });
           break;
 
         case "ALREADY_COMPLETED":
           setErrorMessage(data.message);
+          showErrorPopup({
+            type: "DUPLICATE",
+            title: "Already Scanned",
+            message: data.message,
+          });
           break;
 
         case "BACKWARD_SCAN":
@@ -269,6 +299,11 @@ export default function MIInput() {
           });
           setMissingStages(missingList);
           setErrorMessage(data.message);
+          showErrorPopup({
+            type: "MISSING",
+            title: "Missing Stage(s)",
+            message: data.message,
+          });
 
           if (missingResetTimeoutRef.current) clearTimeout(missingResetTimeoutRef.current);
           missingResetTimeoutRef.current = setTimeout(clearMissingHighlight, 10000);
@@ -302,6 +337,7 @@ export default function MIInput() {
   useEffect(() => {
     wipCodeRef.current?.focus();
   }, []);
+
   // clear any pending auto-reset if the component unmounts mid-timeout
   useEffect(() => {
     return () => {
@@ -332,42 +368,54 @@ export default function MIInput() {
     }
   };
 
+  // The WIP bar code field is cleared ONLY when a scan is accepted — either
+  // by the server (SINGLE / GROUP_SCAN) or into the local pending queue
+  // (GROUP_CREATE). On every failure path — validation, duplicate, missing
+  // stage, network error — the field keeps its value so the operator can
+  // see/edit/retry exactly what was rejected, and stays focused throughout.
   const handleWipCodeScanned = async () => {
     const code = form.wipBarCode.trim();
     if (!code) return;
 
-    clearMissingHighlight(); 
-    
+    clearMissingHighlight();
+
     if (mode !== "view") {
       setErrorMessage("Cannot scan while in New/Edit mode. Save your changes first.");
+      setTimeout(() => wipCodeRef.current?.focus(), 0);
       return;
     }
 
     if (!form.productId) {
       setErrorMessage("Select an ERP number before scanning.");
+      setTimeout(() => wipCodeRef.current?.focus(), 0);
       return;
     }
     if (!stageFlow) {
       setErrorMessage("Stage flow not loaded for this product yet.");
+      setTimeout(() => wipCodeRef.current?.focus(), 0);
       return;
     }
 
-    // Clear the field immediately after every attempt so a rejected/duplicate
-    // scan can't linger and get concatenated with the next scanner read.
-    setForm((f) => ({ ...f, wipBarCode: "" }));
-    setTimeout(() => wipCodeRef.current?.focus(), 50);
-
     if (stageFlow.scan_mode === "GROUP_CREATE") {
-      // ---- LOCAL ONLY: no server call here. Item just gets staged. ----
+      let wasDuplicate = false;
       setPendingGroupScans((prev) => {
         if (prev.some((s) => s.code === code)) {
-          setErrorMessage(`"${code}" is already in the pending list.`);
+          wasDuplicate = true;
+          const dupeMsg = `"${code}" is already in the pending list.`;
+          setErrorMessage(dupeMsg);
+          showErrorPopup({ type: "DUPLICATE", title: "Already Scanned", message: dupeMsg });
           return prev;
         }
         const next = [...prev, { code, tempId: `${code}-${Date.now()}` }];
         setErrorMessage(`Scan added (${next.length} pending). Save group when ready.`);
         return next;
       });
+
+      // Only clear on acceptance into the pending list — not on duplicate.
+      if (!wasDuplicate) {
+        setForm((f) => ({ ...f, wipBarCode: "" }));
+      }
+      setTimeout(() => wipCodeRef.current?.focus(), 50);
       return;
     }
 
@@ -375,7 +423,13 @@ export default function MIInput() {
     const result = await submitScanToServer(code);
     const resultIndex = result?.data?.sequence_no
       ? result.data.sequence_no - 1
-      : assignedStageIndex; // fall back to the operator's own stage for error highlighting
+      : assignedStageIndex;
+
+    if (result.success) {
+      setForm((f) => ({ ...f, wipBarCode: "" }));
+    }
+    setTimeout(() => wipCodeRef.current?.focus(), 50);
+
     handleStageScanned(resultIndex, result);
   };
 
@@ -544,7 +598,7 @@ export default function MIInput() {
   return (
     <div
       style={{
-        height: "100vh",
+        height: "calc(100vh - 120px)",
         display: "flex",
         flexDirection: "column",
         background: "#f4f6f9",
@@ -557,10 +611,94 @@ export default function MIInput() {
           50% { background-color: #ff8a75; border-color: #ff8a75; }
         }
         .missing-stage-blink { animation: missingStagePulse 0.9s ease-in-out infinite; }
+
+        @keyframes glassPopupIn {
+          0% { opacity: 0; transform: translateY(-8px) scale(0.96); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes glassPopupOut {
+          0% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+
+        .pg-action-btn { transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease; }
+        .pg-action-btn:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.03); }
+        .pg-action-btn:not(:disabled):active { transform: translateY(0); }
       `}</style>
-      {/* ---------- ACTION BAR (fixed, directly below the main Navbar) ---------- */}
+
+      {/* ---------- NON-BLOCKING ERROR POPUP ----------
+          pointer-events: none on the whole overlay — it cannot receive
+          clicks or focus. The WIP bar code field stays focused and
+          scannable the entire time this is visible. Solid pastel card,
+          matching the app's badge/pill visual language (no glass/blur). */}
+      {errorPopup && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2000,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "center",
+            paddingTop: 90,
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              minWidth: 340,
+              maxWidth: 420,
+              background: errorPopup.type === "MISSING" ? "#fdeceb" : "#fdf3e2",
+              border: `1.5px solid ${errorPopup.type === "MISSING" ? "#f3b4ac" : "#f0cd8a"}`,
+              borderRadius: 16,
+              boxShadow: "0 12px 32px rgba(15,23,42,0.15)",
+              padding: "16px 20px",
+              animation: "glassPopupIn 0.25s ease-out",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <span
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: errorPopup.type === "MISSING" ? "#d1483c" : "#c9820a",
+                  color: "#fff",
+                }}
+              >
+                <CloseCircleFilled style={{ fontSize: 15 }} />
+              </span>
+              <div>
+                <Text
+                  strong
+                  style={{
+                    fontSize: 13.5,
+                    color: errorPopup.type === "MISSING" ? "#b8352a" : "#a8690a",
+                    display: "block",
+                    marginBottom: 2,
+                  }}
+                >
+                  {errorPopup.title}
+                </Text>
+                <Text style={{ fontSize: 12, color: "#475569", lineHeight: 1.5 }}>
+                  {errorPopup.message}
+                </Text>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- ACTION BAR (sticky, always visible) ---------- */}
       <div
         style={{ 
+          position: "sticky",
+          top: 0,
+          zIndex: 100,
           height: 56,
           flexShrink: 0,
           background: "#ffffff",
@@ -579,19 +717,37 @@ export default function MIInput() {
         </Space>
       
 
-        <Space size={8}>
-          <Button icon={<PlusOutlined />} onClick={handleNew} disabled={isEditable}>
-            New
-          </Button>
-          <Button icon={<EditOutlined />} onClick={handleEdit} disabled={isEditable}>
-            Edit
-          </Button>
-          <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} disabled={!isEditable}>
-            Save
-          </Button>
-          <Button danger icon={<CloseOutlined />} onClick={handleCancel} disabled={!isEditable}>
-            Cancel
-          </Button>
+        <Space size={10}>
+          <ActionButton
+            icon={<PlusOutlined />}
+            label="New"
+            color="#2563eb"
+            onClick={handleNew}
+            disabled={isEditable}
+          />
+          <ActionButton
+            icon={<EditOutlined />}
+            label="Edit"
+            color="#c9820a"
+            onClick={handleEdit}
+            disabled={isEditable}
+          />
+          <ActionButton
+            icon={<SaveOutlined />}
+            label="Save"
+            color="#16a34a"
+            filled
+            onClick={handleSave}
+            disabled={!isEditable}
+          />
+          <ActionButton
+            icon={<CloseOutlined />}
+            label="Cancel"
+            color="#dc2626"
+            filled
+            onClick={handleCancel}
+            disabled={!isEditable}
+          />
         </Space>
       </div>
 
@@ -771,8 +927,18 @@ export default function MIInput() {
           <Row gutter={14} style={{ flexShrink: 0, height: 100 }}>
             <StatCard title="PLAN" value={form.planQty} color="#3a6d95" />
             <StatCard title="PROD" value={form.doneQty} color="#c9820a" />
-            <StatCard title="TODAY DONE" value={130} color="#0f9a90" />
-            <StatCard title="DONE %" value={`${todayDonePercent}%`} color="#d1483c" />
+            <StatCard
+              title="TODAY DONE"
+              value={130}
+              color="#0f9a90"
+              chartPercent={Number(todayDonePercent)}
+            />
+            <StatCard
+              title="DONE %"
+              value={`${todayDonePercent}%`}
+              color="#d1483c"
+              chartPercent={Number(todayDonePercent)}
+            />
           </Row>
 
           <Card
@@ -928,36 +1094,145 @@ function FieldLabel({ text }) {
   );
 }
 
-function StatCard({ title, value, color }) {
+// Header action button — pastel outline for secondary actions (New, Edit),
+// solid fill for the primary/destructive actions (Save, Cancel). Matches the
+// pill/badge look: light tint background, colored border, bold colored text.
+function ActionButton({ icon, label, color, onClick, disabled, filled }) {
+  const baseStyle = filled
+    ? {
+        background: color,
+        border: `1.5px solid ${color}`,
+        color: "#ffffff",
+        boxShadow: `0 4px 12px ${color}40`,
+      }
+    : {
+        background: `${color}14`,
+        border: `1.5px solid ${color}45`,
+        color,
+        boxShadow: "none",
+      };
+
+  return (
+    <button
+      className="pg-action-btn"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        ...baseStyle,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 7,
+        height: 36,
+        padding: "0 16px",
+        borderRadius: 10,
+        fontSize: 13,
+        fontWeight: 700,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      <span style={{ fontSize: 13, display: "flex" }}>{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+// Pastel KPI card — solid tinted background + colored border + bold colored
+// value, matching the app's badge/pill visual language (no glass/blur).
+// Pass `chartPercent` (0-100) to render a small donut ring — used on
+// TODAY DONE / DONE % so those two read as progress at a glance.
+function StatCard({ title, value, color, chartPercent }) {
+  const hasChart = typeof chartPercent === "number" && !Number.isNaN(chartPercent);
+  const clamped = hasChart ? Math.min(100, Math.max(0, chartPercent)) : 0;
+  const chartData = hasChart
+    ? [
+        { name: "filled", value: clamped },
+        { name: "remaining", value: 100 - clamped },
+      ]
+    : null;
+
   return (
     <Col span={6}>
-      <Card
-        styles={{ body: { padding: "12px 16px", height: "100%" } }}
+      <div
         style={{
-          border: "1px solid #e3e8ef",
-          borderRadius: 10,
           height: "100%",
+          borderRadius: 14,
+          padding: "12px 14px",
+          background: `${color}12`,
+          border: `1.5px solid ${color}40`,
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
         }}
       >
-        <div style={{ width: "100%" }}>
+        <div style={{ minWidth: 0 }}>
           <div
             style={{
-              width: 30,
-              height: 3,
-              borderRadius: 2,
-              background: color,
-              marginBottom: 6,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 22,
+              height: 22,
+              borderRadius: 7,
+              background: `${color}22`,
+              marginBottom: 8,
             }}
-          />
-          <Statistic
-            title={<span style={{ color: "#64748b", fontSize: 11.5 }}>{title}</span>}
-            value={value}
-            valueStyle={{ color: "#1b2430", fontWeight: 700, fontSize: 22 }}
-          />
+          >
+            <div style={{ width: 8, height: 8, borderRadius: 3, background: color }} />
+          </div>
+          <Text
+            style={{
+              display: "block",
+              color,
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0.3,
+              opacity: 0.85,
+              marginBottom: 2,
+            }}
+          >
+            {title}
+          </Text>
+          <Text style={{ fontSize: 22, fontWeight: 800, color }}>{value}</Text>
         </div>
-      </Card>
+
+        {hasChart && (
+          <div style={{ width: 50, height: 50, flexShrink: 0, position: "relative" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={chartData}
+                  dataKey="value"
+                  innerRadius={14}
+                  outerRadius={24}
+                  startAngle={90}
+                  endAngle={-270}
+                  stroke="none"
+                  isAnimationActive
+                >
+                  <Cell fill={color} />
+                  <Cell fill={`${color}25`} />
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 9.5,
+                fontWeight: 700,
+                color,
+              }}
+            >
+              {clamped}%
+            </div>
+          </div>
+        )}
+      </div>
     </Col>
   );
 }

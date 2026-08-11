@@ -30,10 +30,14 @@ import ManagepdFields from "./ADMIN/pages/Masters/ManagepdFields.jsx";
 import ManageItems from "./ADMIN/pages/Masters/ManageItems.jsx";
 import ManageItemFields from "./ADMIN/pages/Masters/ManageItemFields.jsx";
 
+import PackegingRuleManager from "./ADMIN/pages/Tracking/PackegingRuleManager.jsx";
+
 import Reports from "./ADMIN/pages/Reports/reports.jsx";
 import Settings from "./ADMIN/pages/Settings/settings.jsx";
 
 function App() {
+
+
   return (
     <Routes>
 
@@ -71,6 +75,7 @@ function App() {
             <Route path="product-stage" element={<ProductStage />} />
             <Route path="scan-stage" element={<ScanStage />} />
             <Route path="scan-history" element={<ScanHistory />} />
+            <Route path="manage-packaging" element={<PackegingRuleManager />} />
           </Route>
           {/* Users */}
           <Route path="users" element={<Users />} />

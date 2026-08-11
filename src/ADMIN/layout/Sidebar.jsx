@@ -23,6 +23,7 @@ const menuConfig = [
       { key: "/admin/tracking/product-stage", label: "Product Stage Flow"},
       { key: "/admin/tracking/scan-stage", label: "Scan Stage Flow"},
       { key: "/admin/tracking/scan-history", label: "Scan History"},
+      { key: "/admin/tracking/manage-packaging", label: "Manage Packaging Rules"},
     ],
    },
   { key: "/admin/masters", icon: Database, label: "Masters",

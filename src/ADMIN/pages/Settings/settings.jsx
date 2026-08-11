@@ -14,6 +14,7 @@ import NotificationSettings from "./sections/NotificationSettings";
 import ManageLines from "./Sections/ManageLine.jsx";
 import ManageFactories from "./Sections/ManageFactories.jsx";
 import ProductionTarget from "./Sections/ProductionTarget.jsx";
+import PrinterManager from "./Sections/ManagePrinters.jsx";
 
 const SECTIONS = [
   { key: "general", label: "General", icon: <SettingOutlined />, component: GeneralSettings },
@@ -23,6 +24,7 @@ const SECTIONS = [
   { key: "notifications", label: "Notifications", icon: <BellOutlined />, component: NotificationSettings },
   { key: "factories", label: "Manage Factories", icon: <ApiOutlined />, component: ManageFactories },
   { key: "lines", label: "Manage Lines", icon: <ApiOutlined />, component: ManageLines },
+  { key: "printers", label: "Manage Printers", icon: <ApiOutlined />, component: PrinterManager },
   { key: "productionTarget", label: "Production Target", icon: <ApiOutlined />, component: ProductionTarget },
 ];
 
