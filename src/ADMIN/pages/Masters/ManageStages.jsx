@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
-import { Form, Input, Select, Switch, Row, Col, message } from "antd";
+import { useState, useEffect, useMemo } from "react";
+import { Form, Input, Select, Switch, Row, Col, message, Button } from "antd";
+import { Plus } from "lucide-react";
 
 import MasterHeader from "../Masters/components/MasterHeader";
 import MasterToolbar from "../Masters/components/MasterToolbar";
@@ -123,9 +124,13 @@ const ManageStages = () => {
   // Lines scoped to selected factory
   const lineOptionsForForm = allLines.filter((l) => l.factoryId === factoryValue);
 
-  const openAddModal = () => {
+  // openAddModal now accepts an optional preset { factoryId, lineId }
+  const openAddModal = (preset = {}) => {
     setEditingRecord(null);
     form.resetFields();
+    if (preset.factoryId || preset.lineId) {
+      form.setFieldsValue({ factoryId: preset.factoryId, lineId: preset.lineId });
+    }
     setFormOpen(true);
   };
 
@@ -197,18 +202,55 @@ const ManageStages = () => {
     }
   };
 
-  const columns = [
-    { title: "Stage Name", dataIndex: "stageName", key: "stageName" },
-    { title: "Category", dataIndex: "categoryName", key: "categoryName" },
-    { title: "Factory", dataIndex: "factoryName", key: "factoryName" },
-    { title: "Line", dataIndex: "lineName", key: "lineName" },
-    { title: "Description", dataIndex: "stageDescription", key: "stageDescription", ellipsis: true },
-    { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
-    { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
-  ];
+ // Group filtered stations by line
+const lineGroups = useMemo(() => {
+  const map = new Map();
+  filteredData.forEach((stage) => {
+    const key = stage.lineId || `unassigned-${stage.factoryId || "none"}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        id: key,
+        lineId: stage.lineId,
+        lineName: stage.lineName,
+        factoryId: stage.factoryId,
+        factoryName: stage.factoryName,
+        stations: [],
+      });
+    }
+    map.get(key).stations.push(stage);
+  });
+  return Array.from(map.values());
+}, [filteredData]);
+
+const lineColumns = [
+  { title: "Line", dataIndex: "lineName", key: "lineName" },
+  { title: "Factory", dataIndex: "factoryName", key: "factoryName" },
+  {
+    title: "Stations",
+    key: "stationCount",
+    render: (_, record) => record.stations.length,
+  },
+  {
+    title: "Active / Inactive",
+    key: "statusSummary",
+    render: (_, record) => {
+      const active = record.stations.filter((s) => s.status === "Active").length;
+      return `${active} Active / ${record.stations.length - active} Inactive`;
+    },
+  },
+];
+
+// Station columns shown inside the expanded row (Factory/Line dropped — redundant here)
+const stationColumns = [
+  { title: "Station Name", dataIndex: "stageName", key: "stageName" },
+  { title: "Category", dataIndex: "categoryName", key: "categoryName" },
+  { title: "Description", dataIndex: "stageDescription", key: "stageDescription", ellipsis: true },
+  { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
+  { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
+];
 
   return (
-    <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius: 16, overflow: "hidden" }}>
+    <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius: 5, overflow: "hidden" }}>
       <div style={{ padding: "20px 20px 0" }}>
         <MasterHeader
           title="Manage Stages"
@@ -221,17 +263,38 @@ const ManageStages = () => {
       <MasterToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by category, factory, line, stage name or description..."
+        searchPlaceholder="Search by category, factory, line, Station name or description..."
         statusValue={statusFilter}
         onStatusChange={setStatusFilter}
       />
 
       <MasterTable
-        columns={columns}
-        data={filteredData}
+        columns={lineColumns}
+        data={lineGroups}
         loading={loading}
-        onEdit={openEditModal}
-        onDelete={setDeleteTarget}
+        rowKey="id"
+        expandable={{
+          expandedRowRender: (record) => (
+            <div style={{ padding: "4px 0 8px" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                <Button
+                  type="dashed"
+                  icon={<Plus size={14} />}
+                  onClick={() => openAddModal({ factoryId: record.factoryId, lineId: record.lineId })}
+                >
+                  Add Station
+                </Button>
+              </div>
+              <MasterTable
+                columns={stationColumns}
+                data={record.stations}
+                rowKey="id"
+                onEdit={openEditModal}
+                onDelete={setDeleteTarget}
+              />
+            </div>
+          ),
+        }}
       />
 
       <MasterFormModal
@@ -298,8 +361,8 @@ const ManageStages = () => {
             <Col span={12}>
               <Form.Item
                 name="stageName"
-                label="Stage Name"
-                rules={[{ required: true, message: "Please enter stage name" }]}
+                label="Station Name"
+                rules={[{ required: true, message: "Please enter station name" }]}
                 style={{ marginBottom: 16 }}
               >
                 <Input placeholder="e.g. PCB Soldering" />
@@ -307,8 +370,8 @@ const ManageStages = () => {
             </Col>
           </Row>
 
-          <Form.Item name="stageDescription" label="Stage Description" style={{ marginBottom: editingRecord ? 16 : 0 }}>
-            <TextArea rows={2} placeholder="Short description of the stage" />
+          <Form.Item name="stageDescription" label="Station Description" style={{ marginBottom: editingRecord ? 16 : 0 }}>
+            <TextArea rows={2} placeholder="Short description of the station" />
           </Form.Item>
 
           {editingRecord && (

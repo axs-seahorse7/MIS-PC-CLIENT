@@ -212,7 +212,7 @@ const ManageFields = () => {
   ];
 
   return (
-    <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius: 16, overflow: "hidden" }}>
+    <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius:5, overflow: "hidden" }}>
       <div style={{ padding: "20px 20px 0" }}>
         <MasterHeader
           title="Manage Fields"

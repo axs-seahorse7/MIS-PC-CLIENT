@@ -1,7 +1,19 @@
 import { Table, Empty } from "antd";
 import { Eye, Pencil, Trash2 } from "lucide-react";
 
-const MasterTable = ({ columns, data, loading, onView, onEdit, onDelete, rowKey = "id" }) => {
+const MasterTable = ({
+  columns,
+  data,
+  loading,
+  onView,
+  onEdit,
+  onDelete,
+  rowKey = "id",
+  expandable,
+  rowClassName,
+}) => {
+  const hasActions = Boolean(onView || onEdit || onDelete);
+
   const tableColumns = [
     {
       title: "S.No",
@@ -10,30 +22,34 @@ const MasterTable = ({ columns, data, loading, onView, onEdit, onDelete, rowKey 
       render: (_, __, index) => index + 1,
     },
     ...columns,
-    {
-      title: "Actions",
-      key: "actions",
-      width: 120,
-      render: (_, record) => (
-        <div style={{ display: "flex", gap: 8 }}>
-          {onView && (
-            <button className="master-action-btn" onClick={() => onView(record)} title="View">
-              <Eye size={15} />
-            </button>
-          )}
-          {onEdit && (
-            <button className="master-action-btn" onClick={() => onEdit(record)} title="Edit">
-              <Pencil size={15} />
-            </button>
-          )}
-          {onDelete && (
-            <button className="master-action-btn master-action-danger" onClick={() => onDelete(record)} title="Delete">
-              <Trash2 size={15} />
-            </button>
-          )}
-        </div>
-      ),
-    },
+    ...(hasActions
+      ? [
+          {
+            title: "Actions",
+            key: "actions",
+            width: 120,
+            render: (_, record) => (
+              <div style={{ display: "flex", gap: 8 }}>
+                {onView && (
+                  <button className="master-action-btn" onClick={() => onView(record)} title="View">
+                    <Eye size={15} />
+                  </button>
+                )}
+                {onEdit && (
+                  <button className="master-action-btn" onClick={() => onEdit(record)} title="Edit">
+                    <Pencil size={15} />
+                  </button>
+                )}
+                {onDelete && (
+                  <button className="master-action-btn master-action-danger" onClick={() => onDelete(record)} title="Delete">
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              </div>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -62,6 +78,8 @@ const MasterTable = ({ columns, data, loading, onView, onEdit, onDelete, rowKey 
         dataSource={data}
         loading={loading}
         rowKey={rowKey}
+        expandable={expandable}
+        rowClassName={rowClassName}
         pagination={{ pageSize: 10, showSizeChanger: false }}
         locale={{ emptyText: <Empty description="No records found" style={{ padding: "40px 0" }} /> }}
       />

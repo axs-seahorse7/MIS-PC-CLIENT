@@ -69,7 +69,7 @@ const AdminLayout = () => {
         <Content
           style={{
             marginTop: HEADER_HEIGHT,
-            padding: 22,
+            padding: 0,
             background: "#F8FAFC",
             minHeight: `calc(100vh - ${HEADER_HEIGHT}px)`,
           }}

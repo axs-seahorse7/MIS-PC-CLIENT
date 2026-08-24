@@ -18,7 +18,7 @@ import React from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext"; // adjust path if your folder depth differs
 
-const ADMIN_ROLE = "SYSTEM_ADMIN"; // change if your backend uses a different role string
+const ADMIN_ROLE = ["SYSTEM_ADMIN", "ADMIN"]; // change if your backend uses a different role string
 
 export default function UserProtected() {
   const { isAuthenticated, user, initializing } = useAuth();
@@ -32,7 +32,7 @@ export default function UserProtected() {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  if (user?.role === ADMIN_ROLE) {
+  if (ADMIN_ROLE.includes(user?.role)) {
     return <Navigate to="/admin/dashboard" replace />;
   }
 

@@ -12,8 +12,9 @@ import AdminLayout from "./ADMIN/layout/AdminLayout.jsx";
 
 import Dashboard from "./ADMIN/pages/Dashboard/dashboard.jsx";
 import Production from "./ADMIN/pages/Production/production.jsx";
-import Tracking from "./ADMIN/pages/Tracking/tracking.jsx";
+import Tracking from "./ADMIN/pages/Tracking/Tracking.jsx";
 import ProductStage from "./ADMIN/pages/Tracking/ProductStage.jsx";
+import CreateProductionOrderModal from "./ADMIN/pages/Tracking/ProductionOrder.jsx"; 
 import ScanStage from "./ADMIN/pages/Tracking/ScanStage.jsx";
 import ScanHistory from "./ADMIN/pages/Tracking/ScanHistory.jsx";
 
@@ -74,6 +75,7 @@ function App() {
           <Route path="tracking" element={<Tracking />}>
             <Route path="product-stage" element={<ProductStage />} />
             <Route path="scan-stage" element={<ScanStage />} />
+            <Route path="production-order" element={<CreateProductionOrderModal />} />
             <Route path="scan-history" element={<ScanHistory />} />
             <Route path="manage-packaging" element={<PackegingRuleManager />} />
           </Route>

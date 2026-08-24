@@ -47,7 +47,7 @@ export function AuthProvider({ children }) {
       if (err.response) {
         message = err.response.data?.message || "Incorrect username or password.";
       } else if (err.request) {
-        message = "Server se connect nahi ho paya. Backend chal raha hai check kar.";
+        message = "No response from server. Please check your network connection.";
       }
       return { success: false, message };
     } finally {

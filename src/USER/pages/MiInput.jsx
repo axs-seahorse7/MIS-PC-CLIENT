@@ -1,47 +1,16 @@
 import React, { useState, useRef, useEffect } from "react";
-import {
-  Button,
-  Input,
-  Select,
-  Tag,
-  Card,
-  Statistic,
-  Row,
-  Col,
-  Space,
-  Typography,
-  Alert,
-  message,
-} from "antd";
-import {
-  ScanOutlined,
-  PlusOutlined,
-  EditOutlined,
-  SaveOutlined,
-  CloseOutlined,
-  CheckCircleFilled,
-  CloseCircleFilled,
-} from "@ant-design/icons";
+import { Button, Input, Select, Tag, Card, Divider, Row, Col, Space, Typography, Alert, notification} from "antd";
+import { ScanOutlined, PlusOutlined, EditOutlined, SaveOutlined, CloseOutlined, CheckCircleFilled, CloseCircleFilled} from "@ant-design/icons";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { useAuth } from "../../Authentication/context/AuthContext"; // adjust path if your folder depth differs
 import api from "../../services/API/api";
+import formatScanTime from "../../helpers/formatScanTime"
+
+
+import { printRawZpl } from "../../utils/qzTray";
+import { buildBoxLabelZpl } from "../../utils/zplBuilder";
 
 const { Text, Title } = Typography;
-
-// Status -> Tag color map
-const STATUS_COLOR = {
-  SUCCESS: "green",
-  PENDING: "orange",
-  REJECTED: "red",
-  DRAFT: "default",
-};
-
-const LINE_OPTIONS = [{ value: "102:MI LINE 02", label: "102: MI LINE 02" }];
-const QUALITY_OPTIONS = [
-  { value: "OK", label: "OK" },
-  { value: "HOLD", label: "HOLD" },
-  { value: "REJECT", label: "REJECT" },
-];
 
 const EMPTY_FORM = {
   productId: null,
@@ -58,12 +27,26 @@ const EMPTY_FORM = {
   doneQty: 0,
 };
 
+// server-driven target/achievement snapshot — comes back on every scan
+// response (SINGLE / GROUP_CREATE / GROUP_SCAN / Save Group). Drives the
+// PLAN / PRODUCTION / ACHIEVED / REMAINS % cards. All read-only in the UI.
+const EMPTY_STAGE_STATS = {
+  targetQty: 0,
+  achievedQty: 0,
+  remainingQty: 0,
+  achievementPercent: 0,
+  production_order_status: "PENDING",
+  remainsQty: 0,
+};
+
 export default function MIInput() {
   const [mode, setMode] = useState("view"); // "view" | "new" | "edit"
   const [status, setStatus] = useState("SUCCESS");
 
   // ---- Logged-in operator's assigned stage (from admin dashboard) ----
   const { user } = useAuth();
+  const [form, setForm] = useState(EMPTY_FORM);
+
 
   const [stageFlowRows, setStageFlowRows] = useState([]); // ALL stages for this product, sorted by sequence_no
   const [stageFlow, setStageFlow] = useState(null); // the ONE row matching the logged-in user's stage
@@ -78,16 +61,76 @@ export default function MIInput() {
   const [groupId, setGroupId] = useState(null);
   const [serialNo, setSerialNo] = useState(null);
 
+  // server-driven target/achievement stats — see EMPTY_STAGE_STATS above
+  const [stageStats, setStageStats] = useState(EMPTY_STAGE_STATS);
+
   const [errorMessage, setErrorMessage] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
 
   // "missing stage" inline banner state
   const [missingStages, setMissingStages] = useState([]); // [{ index, label }]
 
-  // Non-blocking glass popup for "already scanned" / "missing stage" errors.
-  // Purely decorative — no focusable elements, pointer-events: none — so the
-  // WIP bar code field never loses focus while this is on screen.
-  const [errorPopup, setErrorPopup] = useState(null); // { type: 'DUPLICATE' | 'MISSING', title, message }
+
+  //get the latest 10 scans for the current product and stage
+  const [recentScans, setRecentScans] = useState([]); 
+
+  const fetchLatestScans = async () => {
+
+    if (!user?.factory?.id || !user?.line?.id || !user?.stage?.id) {
+      notification.warning({
+        message: "Cannot fetch latest scans",
+        description: "Please select a product and ensure factory, line, and stage are assigned.",
+        placement: "topRight",
+      });
+
+      setRecentScans([]);
+      return;
+    }
+
+    if(!form.productId) return;
+
+    try {
+      const res = await api.get(`/scan-history/latest-scans/${user.factory.id}/${form.productId}/${user.line.id}/${user.stage.id}`);
+
+      const rows = res?.data?.data ?? [];
+      setRecentScans(Array.isArray(rows) ? rows : []);
+      console.log("Fetched latest scans:",rows);
+
+    } catch (err) {
+
+      console.error(
+        "Error fetching latest scans:",
+        err
+      );
+
+      setRecentScans([]);
+
+      notification.error({
+        message: "Failed to load latest scans",
+        description:
+          err?.response?.data?.message ||
+          "Could not fetch the latest scans for this product and stage. Please retry.",
+        placement: "topRight",
+      });
+
+    }
+  };
+
+  useEffect(() => {
+    try {
+      
+      fetchLatestScans();
+    } catch (err) {
+      console.error("Error in latest scans effect:", err);
+    }
+  }, [form.productId]);
+
+
+  // Non-blocking glass popup for scan-related errors (duplicate / missing
+  // stage / backward scan / any other scan rejection). Purely decorative —
+  // no focusable elements, pointer-events: none — so the WIP bar code field
+  // never loses focus while this is on screen.
+  const [errorPopup, setErrorPopup] = useState(null); // { type: 'DUPLICATE' | 'MISSING' | 'ERROR', title, message }
   const errorPopupTimeoutRef = useRef(null);
 
   const showErrorPopup = (popup) => {
@@ -96,7 +139,7 @@ export default function MIInput() {
     errorPopupTimeoutRef.current = setTimeout(() => {
       setErrorPopup(null);
       errorPopupTimeoutRef.current = null;
-    }, 3000);
+    }, 8000);
   };
 
   useEffect(() => {
@@ -108,7 +151,6 @@ export default function MIInput() {
   const [products, setProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(true);
 
-  const [form, setForm] = useState(EMPTY_FORM);
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -119,7 +161,11 @@ export default function MIInput() {
         setProducts(res?.data?.data || res?.data || []);
       } catch (err) {
         console.error("Error fetching products:", err);
-        message.error("Failed to load products");
+        notification.error({
+          message: "Failed to load products",
+          description: "Could not fetch the product list. Please retry.",
+          placement: "topRight",
+        });
       } finally {
         setProductsLoading(false);
       }
@@ -138,15 +184,7 @@ export default function MIInput() {
 
   }, [errorMessage, successMessage]);
 
-  useEffect(() => {
-    async function fetchProductionTargets() {
-      const res = await api.get(`/production-targets/by-line-and-product/${user?.line?.id}/${form.productId}`);
-      console.log("Fetched production targets:", res?.data);
-      setForm((f) => ({ ...f, planQty: res?.data?.data?.[0]?.target_quantity || 0 }));
-    }
 
-    fetchProductionTargets();
-}, [user?.line?.id, form.productId]);
 
   //  Generate a UNIQUE id where the code segment is is e.g. AB-TODAY DATE-PRODUCT ID - SERIAL NO. 
   const generateUniqueIdPlanNo = () => {
@@ -157,9 +195,70 @@ export default function MIInput() {
     return `${productFirst3}-${today}-${productId}-${currentTimeInMs}`;
   };
 
-  // ---- GROUP_CREATE staging: scans collected here are LOCAL ONLY.
-  // Nothing hits scan_history until "Save Group" is clicked, at which
-  // point the whole batch of codes is sent to the server together.
+
+ const printBoxLabel = async (packaging) => {
+  const printerName = packaging.printer_name;
+
+  if (!printerName) {
+    notification.error({
+      message: "Print skipped",
+      description: "No printer configured for this packaging rule.",
+      placement: "topRight",
+    });
+    return;
+  }
+
+  console.log("🖨️ PRINT BOX LABEL CALLED", {
+    jobId: packaging.print_job_id,
+    barcode: packaging.barcode_data,
+    time: new Date().toISOString(),
+  });
+
+  try {
+    const zpl = buildBoxLabelZpl({
+      barcodeData: packaging.barcode_data,
+    });
+
+    console.log("Sending clean ZPL payload:", zpl);
+
+    // PRINT ONLY ONCE
+    await printRawZpl(printerName, zpl);
+
+    console.log("✅ Print job completely handed over to QZ Tray!");
+
+    // Update DB only after successful handoff
+    await api.patch(
+      `/print/box-print-jobs/${packaging.print_job_id}`,
+      {
+        status: "PRINTED",
+      }
+    );
+
+    notification.success({
+      message: "Box label printed",
+      description: `Box ${packaging.box_code} — ${packaging.barcode_data}`,
+      placement: "topRight",
+    });
+
+  } catch (err) {
+    console.error("❌ PRINT FAILED:", err);
+
+    await api.patch(
+      `/print/box-print-jobs/${packaging.print_job_id}`,
+      {
+        status: "FAILED",
+        error_message: err?.message || "Print failed",
+      }
+    );
+
+    notification.error({
+      message: "Print failed",
+      description: err?.message || "Could not send label to printer.",
+      placement: "topRight",
+    });
+  }
+};
+
   const [pendingGroupScans, setPendingGroupScans] = useState([]); 
   const [savingGroup, setSavingGroup] = useState(false);
 
@@ -171,6 +270,7 @@ export default function MIInput() {
       setPendingGroupScans([]);
       setStageStatus([]);
       setLastConfirmed(-1);
+      setStageStats(EMPTY_STAGE_STATS);
       return;
     }
 
@@ -179,7 +279,6 @@ export default function MIInput() {
         const res = await api.get(`/product-stage-flow/${form.productId}`);
         const payload = res?.data || [];
         const rows = Array.isArray(payload) ? payload : payload ? [payload] : [];
-        console.log("Fetched stage flow rows:", rows);
 
         const sorted = [...rows].sort((a, b) => a.sequence_no - b.sequence_no);
         setStageFlowRows(sorted);
@@ -197,28 +296,47 @@ export default function MIInput() {
         setLastConfirmed(-1);
         setGroupId(null);
         setSerialNo(null);
+        // setStageStats(EMPTY_STAGE_STATS);
       } catch (err) {
         setErrorMessage("Failed to load stage flow for this product");
+        notification.error({
+          message: "Stage flow load failed",
+          description: "Could not load the scan stage sequence for this product.",
+          placement: "topRight",
+        });
       }
 
     };
 
     fetchStageFlow();
-  }, [form.productId, user]);
+  }, [form.productId, user]); 
 
   // Selecting an ERP number auto-fills the product name / id for scan readiness
+  const [selected, setSelected] = useState(null);
+
   const handleErpSelect = (productId) => {
-    const selected = products.find((p) => p.id === productId);
+    const selectedProduct = products.find((p) => p.id === productId);
+    setSelected(selectedProduct);
+
     setForm((f) => ({
       ...f,
       productId,
-      erpNo: selected?.erp_no || "",
-      productName: selected?.name || "",
+      erpNo: selectedProduct?.erp_no || "",
+      productName: selectedProduct?.name || "",
       station: user?.stage?.name || "",
-      itemPlanned: selected?.erp_no || "",
-      date: new Date().toISOString().slice(0, 10), 
+      itemPlanned: selectedProduct?.erp_no || "",
+      planNo: selectedProduct?.production_order_no || "",
+      date: new Date().toISOString().slice(0, 10),
       machineName: user?.line?.name || "",
     }));
+    setStageStats({
+      targetQty: selectedProduct?.target_qty || 0,
+      achievedQty: selectedProduct?.achieved_qty || 0,
+      remainingQty: selectedProduct?.remaining_qty || 0,
+      achievementPercent: selectedProduct?.achievement_percent || 0,
+      production_order_status: selectedProduct?.production_order_status || "PENDING",
+      remainsQty: selectedProduct?.remaining_qty || 0,
+    });
   };
 
   const flashTile = (index, times) => {
@@ -254,82 +372,278 @@ export default function MIInput() {
     await flashTile(newIndex, 2);
   };
 
-  const handleStageScanned = (index, data) => {
-    if (!data.success) {
-      switch (data.errorType) {
-        case "DUPLICATE_STAGE":
-          setStageStatus((prev) => {
-            const next = [...prev];
-            if (index >= 0) next[index] = "done";
-            return next;
-          });
-          setErrorMessage(data.message);
-          showErrorPopup({
-            type: "DUPLICATE",
-            title: "Already Scanned",
-            message: data.message,
-          });
-          break;
+ 
+  const applyStageStatsFromResponse = (responseData) => {
+    if (!responseData) return;
+    const targetQty = responseData.target_qty ?? responseData.stage_target_qty ?? null;
+    const achievedQty = responseData.stage_achieved_qty ?? null;
+    const remainingQty = responseData.stage_remaining_qty ?? null;
+    const achievementPercent = responseData.stage_achievement_percent ?? null;
 
-        case "ALREADY_COMPLETED":
-          setErrorMessage(data.message);
-          showErrorPopup({
-            type: "DUPLICATE",
-            title: "Already Scanned",
-            message: data.message,
+    setStageStats((s) => ({
+      ...s,
+      targetQty: targetQty ?? s.targetQty,
+      achievedQty: achievedQty ?? s.achievedQty,
+      remainingQty: remainingQty ?? s.remainingQty,
+      remainsQty: remainingQty ?? s.remainsQty,
+      achievementPercent: achievementPercent ?? s.achievementPercent,
+    }));
+
+    setForm((f) => ({
+      ...f,
+      planQty: targetQty ?? f.planQty,
+      doneQty: achievedQty ?? f.doneQty,
+    }));
+  };
+
+ const handleStageScanned = (index, data) => {
+  if (!data.success) {
+    switch (data.errorType) {
+
+      // ------------------------------------------------------
+      // Already scanned at this stage
+      // ------------------------------------------------------
+
+      case "DUPLICATE_STAGE":
+        setStageStatus((prev) => {
+          const next = [...prev];
+
+          if (index >= 0 && index < next.length) {
+            next[index] = "done";
+          }
+
+          return next;
+        });
+
+        setErrorMessage(data.message);
+
+        showErrorPopup({
+          type: "DUPLICATE",
+          title: "Already Scanned",
+          message: data.message,
+        });
+
+        break;
+
+
+      // ------------------------------------------------------
+      // Already completed
+      // ------------------------------------------------------
+
+      case "ALREADY_COMPLETED":
+        setErrorMessage(data.message);
+        showErrorPopup({
+          type: "DUPLICATE",
+          title: "Already Scanned",
+          message: data.message,
+        });
+
+        break;
+
+
+      // ------------------------------------------------------
+      // Backward scan
+      // ------------------------------------------------------
+
+      case "BACKWARD_SCAN":
+        setErrorMessage(data.message);
+        showErrorPopup({
+          type: "ERROR",
+          title: "Scan Rejected",
+          message: data.message,
+        });
+
+        break;
+
+
+      // ------------------------------------------------------
+      // Missing normal MES stages
+      // ------------------------------------------------------
+
+      case "MISSING_STAGES": {
+        const missingList = (data.missing || []).map((stage) => ({
+          index: stage.sequence_no - 1,
+          label: stage.stage_name,
+        }));
+
+
+        setStageStatus((prev) => {
+          const next = [...prev];
+          missingList.forEach((stage) => {
+            if (
+              stage.index >= 0 &&
+              stage.index < next.length
+            ) {
+              next[stage.index] = "error";
+            }
+
           });
-          break;
 
-        case "BACKWARD_SCAN":
-          setErrorMessage(data.message);
-          break;
+          return next;
+        });
 
-        case "MISSING_STAGES": {
-          const missingList = (data.missing || []).map((m) => ({
-            index: m.sequence_no - 1,
-            label: m.stage_name,
-          }));
 
-          setStageStatus((prev) => {
-            const next = [...prev];
-            missingList.forEach((m) => {
-              if (m.index >= 0 && m.index < next.length) next[m.index] = "error";
-            });
-            return next;
-          });
-          setMissingStages(missingList);
-          setErrorMessage(data.message);
-          showErrorPopup({
-            type: "MISSING",
-            title: "Missing Stage(s)",
-            message: data.message,
-          });
+        setMissingStages(missingList);
+        setErrorMessage(data.message);
+        showErrorPopup({
+          type: "MISSING",
+          title: "Missing Stage(s)",
+          message: data.message,
+        });
 
-          if (missingResetTimeoutRef.current) clearTimeout(missingResetTimeoutRef.current);
-          missingResetTimeoutRef.current = setTimeout(clearMissingHighlight, 10000);
-          break;
+
+        // Clear temporary highlight after 10 seconds
+
+        if (missingResetTimeoutRef.current) {
+          clearTimeout(missingResetTimeoutRef.current);
         }
 
-        default:
-          console.warn("submitScan response missing errorType:", data);
-          setErrorMessage(data.message || "Scan failed.");
+        missingResetTimeoutRef.current = setTimeout(
+          clearMissingHighlight,
+          10000
+        );
+
+        break;
       }
-      return;
+
+
+      // ------------------------------------------------------
+      // External machine validation failed
+      //
+      // This stage is virtual, but still exists in the
+      // production flow. Highlight the actual machine stage
+      // that blocked production.
+      // ------------------------------------------------------
+
+      case "EXTERNAL_DEPENDENCY_FAILED": {
+        const dependency = data.stage;
+        if (dependency?.sequence_no != null) {
+
+          const dependencyIndex = Number(dependency.sequence_no) - 1;
+          setStageStatus((prev) => {
+            const next = [...prev];
+
+            if (
+              dependencyIndex >= 0 &&
+              dependencyIndex < next.length
+            ) {
+              next[dependencyIndex] = "error";
+            }
+
+            return next;
+          });
+
+
+          // Use the same missing-stage mechanism if your UI
+          // already depends on this state for labels/highlights.
+
+          setMissingStages([
+            {
+              index: dependencyIndex,
+              label: dependency.stage_name,
+            },
+          ]);
+        }
+
+
+        setErrorMessage(data.message);
+
+        showErrorPopup({
+          type: "ERROR",
+          title: `${dependency?.machine_type || "External Machine"} Validation Failed`,
+          message: data.message,
+        });
+
+
+        // Clear temporary error highlight
+
+        if (missingResetTimeoutRef.current) {
+          clearTimeout(missingResetTimeoutRef.current);
+        }
+
+        missingResetTimeoutRef.current = setTimeout(
+          clearMissingHighlight,
+          10000
+        );
+
+        break;
+      }
+
+
+      // ------------------------------------------------------
+      // Unknown error
+      // ------------------------------------------------------
+
+      default:
+
+        console.warn("submitScan response missing or unknown errorType:", data);
+
+        setErrorMessage(data.message || "Scan failed.");
+
+        showErrorPopup({
+          type: "ERROR",
+          title: "Scan Failed",
+          message: data.message ||"Scan failed. Please try again.",
+        });
     }
 
-    // success
-    setStageStatus((prev) => {
-      const next = [...prev];
+    return;
+  }
+
+
+  // ==========================================================
+  // SCAN SUCCESS
+  // ==========================================================
+
+  // Production target / achievement
+  applyStageStatsFromResponse(data.data);
+
+
+  // Packaging print
+  const packaging = data.data?.packaging;
+
+  if (packaging?.print_job_created) {
+    printBoxLabel(packaging);
+  }
+
+
+  // Mark current physical MES stage as completed
+
+  setStageStatus((prev) => {
+    const next = [...prev];
+
+    if (
+      index >= 0 &&
+      index < next.length
+    ) {
       next[index] = "done";
-      return next;
-    });
-    setLastConfirmed(index);
-    if (!groupId) {
-      setGroupId(data.group_id ?? `GRP-${Date.now().toString().slice(-6)}`);
-      setSerialNo(form.wipBarCode || "—");
     }
-    playConfirmAnimation(index);
-  };
+
+    return next;
+  });
+
+
+  setLastConfirmed(index);
+
+
+  // Create group ID if required
+
+  if (!groupId) {
+
+    setGroupId(
+      data.group_id ??
+      data?.data?.group_id ??
+      `GRP-${Date.now().toString().slice(-6)}`
+    );
+
+    setSerialNo(
+      form.wipBarCode || "—"
+    );
+  }
+
+
+  playConfirmAnimation(index);
+};
 
   const wipCodeRef = useRef(null);
   const groupResetTimeoutRef = useRef(null);
@@ -345,34 +659,82 @@ export default function MIInput() {
     };
   }, []);
 
-  // ---- direct save path, used for SINGLE / GROUP_SCAN only ----
-  const submitScanToServer = async (code) => {
-    try {
-      const res = await api.post("/scan-history/create", {
-        scanned_value: code,
-        product_id: form.productId,
-      });
-      setErrorMessage(null);
-      setSuccessMessage(`${code} scan submitted successfully.`);
-      return res.data; // { success: true, data: { sequence_no, ... } }
-    } catch (err) {
-      // Return the server's actual error payload (errorType, missing, message)
-      // instead of discarding it — this is what was getting lost.
-      return (
-        err?.response?.data || {
-          success: false,
-          errorType: "NETWORK_ERROR",
-          message: "Scan submission failed",
-        }
-      );
-    }
-  };
+const submitScanToServer = async (code) => {
+  try {
+    const res = await api.post("/scan-history/create", {
+      scanned_value: code,
+      product_id: form.productId,
+    });
 
-  // The WIP bar code field is cleared ONLY when a scan is accepted — either
-  // by the server (SINGLE / GROUP_SCAN) or into the local pending queue
-  // (GROUP_CREATE). On every failure path — validation, duplicate, missing
-  // stage, network error — the field keeps its value so the operator can
-  // see/edit/retry exactly what was rejected, and stays focused throughout.
+    const response = res?.data;
+    const scanData = response?.data;
+
+    console.log("Scan submission response:", response);
+
+    setErrorMessage(null);
+
+    setSuccessMessage(`${code} has been successfully recorded.`);
+
+    setTimeout(() => {
+      setSuccessMessage(null);
+    }, 10000);
+
+
+    // ==========================================================
+    // Update production stage statistics
+    // ==========================================================
+
+    setStageStats((prev) => ({
+      ...prev,
+
+      targetQty:
+        scanData?.stage_target_qty ??
+        prev.targetQty,
+
+      achievedQty:
+        scanData?.stage_achieved_qty ??
+        prev.achievedQty,
+
+      remainingQty:
+        scanData?.stage_remaining_qty ??
+        prev.remainingQty,
+
+      remainsQty:
+        scanData?.stage_remaining_qty ??
+        prev.remainsQty,
+
+      achievementPercent:
+        scanData?.stage_achievement_percent ??
+        prev.achievementPercent,
+    }));
+
+
+    // ==========================================================
+    // Refresh latest scans
+    // ==========================================================
+
+    fetchLatestScans();
+
+
+    return response;
+
+  } catch (err) {
+
+    console.error(
+      "Error submitting scan:",
+      err
+    );
+
+    return (
+      err?.response?.data || {
+        success: false,
+        errorType: "NETWORK_ERROR",
+        message: "Scan submission failed",
+      }
+    );
+  }
+};
+
   const handleWipCodeScanned = async () => {
     const code = form.wipBarCode.trim();
     if (!code) return;
@@ -380,18 +742,24 @@ export default function MIInput() {
     clearMissingHighlight();
 
     if (mode !== "view") {
-      setErrorMessage("Cannot scan while in New/Edit mode. Save your changes first.");
+      const msg = "Cannot scan while in New/Edit mode. Save your changes first.";
+      setErrorMessage(msg);
+      showErrorPopup({ type: "ERROR", title: "Scan Blocked", message: msg });
       setTimeout(() => wipCodeRef.current?.focus(), 0);
       return;
     }
 
     if (!form.productId) {
-      setErrorMessage("Select an ERP number before scanning.");
+      const msg = "Select an ERP number before scanning.";
+      setErrorMessage(msg);
+      showErrorPopup({ type: "ERROR", title: "Scan Blocked", message: msg });
       setTimeout(() => wipCodeRef.current?.focus(), 0);
       return;
     }
     if (!stageFlow) {
-      setErrorMessage("Stage flow not loaded for this product yet.");
+      const msg = "Stage flow not loaded for this product yet.";
+      setErrorMessage(msg);
+      showErrorPopup({ type: "ERROR", title: "Scan Blocked", message: msg });
       setTimeout(() => wipCodeRef.current?.focus(), 0);
       return;
     }
@@ -427,6 +795,7 @@ export default function MIInput() {
 
     if (result.success) {
       setForm((f) => ({ ...f, wipBarCode: "" }));
+      addRecentScan(code);
     }
     setTimeout(() => wipCodeRef.current?.focus(), 50);
 
@@ -443,7 +812,11 @@ export default function MIInput() {
   // together in one transaction.
   const handleSaveGroup = async () => {
     if (!pendingGroupScans.length) {
-      setErrorMessage("No pending scans to group.");
+      notification.warning({
+        message: "Nothing to save",
+        description: "There are no pending scans to group.",
+        placement: "topRight",
+      });
       return;
     }
     setSavingGroup(true);
@@ -453,13 +826,27 @@ export default function MIInput() {
         product_id: form.productId,
       });
       if (!res?.data?.success) {
-        setErrorMessage(res?.data?.message || "Failed to save group");
+        notification.error({
+          message: "Group save failed",
+          description: res?.data?.message || "Failed to save group",
+          placement: "topRight",
+        });
         return;
       }
       setErrorMessage(null);
       setSuccessMessage("Group saved successfully.");
+      pendingGroupScans.forEach((s) => addRecentScan(s.code));
       setPendingGroupScans([]);
-      await handleStageScanned(assignedStageIndex);
+      notification.success({
+        message: "Group saved",
+        description: res?.data?.message || "Group saved successfully.",
+        placement: "topRight",
+      });
+
+      // wire the real server response into stats/targets and stage tiles —
+      // previously this was called with no data, so PLAN/PROD/DONE% never
+      // updated after a group save.
+      await handleStageScanned(assignedStageIndex, res.data);
       setTimeout(() => wipCodeRef.current?.focus(), 50); 
 
    
@@ -476,24 +863,17 @@ export default function MIInput() {
         groupResetTimeoutRef.current = null;
       }, 3000);
     } catch (err) {
-      setErrorMessage(err?.response?.data?.message || "Failed to save group");
+      const msg = err?.response?.data?.message || "Failed to save group";
+      setErrorMessage(msg);
+      notification.error({
+        message: "Group save failed",
+        description: msg,
+        placement: "topRight",
+      });
     } finally {
       setSavingGroup(false);
     }
   };
-
-  // Module quick-access buttons (left side of action bar)
-  const MODULE_BUTTONS = [
-    "SM-ICT",
-    "ICT REQD",
-    "FCT REQD",
-    "SM FCT",
-    "FT REQD",
-    "SM FT",
-    "CUST SFN",
-    "PS11400",
-    "FIND SFN",
-  ];
 
 
   const isEditable = mode === "new" || mode === "edit";
@@ -506,6 +886,7 @@ export default function MIInput() {
   // ---- New: full reset, ready for a fresh ERP selection ----
   const handleNew = () => {
     setForm(EMPTY_FORM);
+    setSelected(null);
     setStageFlowRows([]);
     setStageFlow(null);
     setStageStatus([]);
@@ -513,6 +894,8 @@ export default function MIInput() {
     setLastConfirmed(-1);
     setGroupId(null);
     setSerialNo(null);
+    setStageStats(EMPTY_STAGE_STATS);
+    setRecentScans([]);
     setMode("new");
     setStatus("DRAFT");
   };
@@ -526,11 +909,11 @@ export default function MIInput() {
   
   const handleSave = () => {
     if(!form.productId ) {
-      setErrorMessage("Cannot save: select a product first.");
-      return;
-    }
-    if(!form.planQty || form.planQty <= 0) {
-      setErrorMessage("Cannot save: enter a valid plan quantity.");
+      notification.error({
+        message: "Cannot save",
+        description: "Select a product first.",
+        placement: "topRight",
+      });
       return;
     }
     setMode("view");
@@ -543,10 +926,8 @@ export default function MIInput() {
   const handleCancel = () => {
     setMode("view");
     setForm(EMPTY_FORM);
+    setSelected(null);
   };
-
-  const todayDonePercent = ((2055 / 5000) * 100).toFixed(1);
-
 
   const missingResetTimeoutRef = useRef(null);
 
@@ -574,8 +955,7 @@ export default function MIInput() {
   }, []);
 
   useEffect(() => {
-    const KEEP_FOCUS_SELECTORS =
-      'input, textarea, .ant-select-selector, .ant-select-dropdown, .ant-select-item, .ant-picker, .ant-picker-dropdown';
+    const KEEP_FOCUS_SELECTORS = 'input, textarea, .ant-select-selector, .ant-select-dropdown, .ant-select-item, .ant-picker, .ant-picker-dropdown';
 
     const handleDocumentClick = (e) => {
       const wipInputEl = wipCodeRef.current?.input;
@@ -621,16 +1001,25 @@ export default function MIInput() {
           100% { opacity: 0; }
         }
 
+        @keyframes recentScanIn {
+          0% { opacity: 0; transform: translateY(-4px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+
         .pg-action-btn { transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease; }
         .pg-action-btn:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.03); }
         .pg-action-btn:not(:disabled):active { transform: translateY(0); }
       `}</style>
 
+
+      
+
       {/* ---------- NON-BLOCKING ERROR POPUP ----------
           pointer-events: none on the whole overlay — it cannot receive
           clicks or focus. The WIP bar code field stays focused and
           scannable the entire time this is visible. Solid pastel card,
-          matching the app's badge/pill visual language (no glass/blur). */}
+          matching the app's badge/pill visual language (no glass/blur).
+          Covers DUPLICATE (orange), and MISSING / ERROR (red). */}
       {errorPopup && (
         <div
           style={{
@@ -648,8 +1037,8 @@ export default function MIInput() {
             style={{
               minWidth: 340,
               maxWidth: 420,
-              background: errorPopup.type === "MISSING" ? "#fdeceb" : "#fdf3e2",
-              border: `1.5px solid ${errorPopup.type === "MISSING" ? "#f3b4ac" : "#f0cd8a"}`,
+              background: errorPopup.type === "MISSING" || errorPopup.type === "ERROR" ? "#fdeceb" : "#fdf3e2",
+              border: `1.5px solid ${errorPopup.type === "MISSING" || errorPopup.type === "ERROR" ? "#f3b4ac" : "#f0cd8a"}`,
               borderRadius: 16,
               boxShadow: "0 12px 32px rgba(15,23,42,0.15)",
               padding: "16px 20px",
@@ -666,7 +1055,7 @@ export default function MIInput() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  background: errorPopup.type === "MISSING" ? "#d1483c" : "#c9820a",
+                  background: errorPopup.type === "MISSING" || errorPopup.type === "ERROR" ? "#d1483c" : "#c9820a",
                   color: "#fff",
                 }}
               >
@@ -677,7 +1066,7 @@ export default function MIInput() {
                   strong
                   style={{
                     fontSize: 13.5,
-                    color: errorPopup.type === "MISSING" ? "#b8352a" : "#a8690a",
+                    color: errorPopup.type === "MISSING" || errorPopup.type === "ERROR" ? "#b8352a" : "#a8690a",
                     display: "block",
                     marginBottom: 2,
                   }}
@@ -712,8 +1101,21 @@ export default function MIInput() {
 
         <Space size={8}>
           <Title level={5} style={{ margin: 0, color: "#1b2430" }}>
-            MI Input
+              Production Order: {selected?.production_order_no? <span style={{color: "green"}} > {selected?.production_order_no} </span> : <span style={{color: "orange"}} > Not Selected </span> } 
           </Title>
+          {selected?.production_order_status && (
+            <Tag level={5} 
+            variant="filled" 
+            style={{ 
+              margin: 0,
+              color: selected?.production_order_status === "COMPLETED" ? "green" : selected?.production_order_status === "RUNNING" ? "blue" : "orange", 
+              backgroundColor: selected?.production_order_status === "COMPLETED" ? "#d1fae5" : selected?.production_order_status === "RUNNING" ? "#dbeafe" : "#fef3c7",
+              borderRadius: 6,
+              fontWeight: 600, 
+              padding: "2px 10px" }}>
+              {selected?.production_order_status} 
+            </Tag>
+        )}
         </Space>
       
 
@@ -750,6 +1152,44 @@ export default function MIInput() {
           />
         </Space>
       </div>
+
+      {/* ---------- PLANNED ITEM / ITEM NAME SUMMARY ROW ----------
+          Mirrors the header line in the approved layout. Everything else
+          that used to live in the field grid (Date, Plan No, Quality,
+          Machine Name, Station, Plan/Done Qty) now surfaces in the Navbar
+          instead — the underlying `form` values are still tracked here
+          so the Navbar can read them once that wiring is in place. */}
+        <div
+          style={{
+            flexShrink: 0,
+            background: "#ffffff",
+            borderBottom: "1px solid #e3e8ef",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "8px 20px",
+          }}
+        >
+          <Tag style={{ borderRadius: 6, fontWeight: 600, padding: "2px 10px" }}>
+            STATION : {user?.stage?.name || "—"}
+          </Tag>
+            {selected && (
+              <Divider type="vertical" style={{ height: 20, borderColor: "#e3e8ef" }} />
+            )}
+            {selected && 
+            <Tag style={{ borderRadius: 6, fontWeight: 600, padding: "2px 10px" }}>
+              PLANNED ITEM : {selected.erp_no || "—"}
+            </Tag>
+            } 
+            {selected && (
+              <Divider type="vertical" style={{ height: 20, borderColor: "#e3e8ef" }} />
+            )}
+            {selected && (  
+              <Tag style={{ borderRadius: 6, fontWeight: 600, padding: "2px 10px" }}>
+              ITEM NAME : {selected.name || "—"}
+              </Tag>
+            )}
+        </div>
 
       {/* ---------- MISSING STAGE INLINE BANNER (below action bar) ---------- */}
       {missingStages.length > 0 && (
@@ -812,6 +1252,20 @@ export default function MIInput() {
             flexDirection: "column",
           }}
         >
+          <Text
+            strong
+            style={{
+              display: "block",
+              fontSize: 10.5,
+              color: "#3a6d95",
+              letterSpacing: 0.4,
+              textTransform: "uppercase",
+              marginBottom: 6,
+              padding: "0 2px",
+            }}
+          >
+            All Stations
+          </Text>
           <Space direction="vertical" size={6} style={{ width: "100%", flex: 1 }}>
             {STAGES.length === 0 && (
               <Text type="secondary" style={{ fontSize: 11, padding: "6px 4px" }}>
@@ -913,7 +1367,7 @@ export default function MIInput() {
           </Space>
         </div>
 
-        {/* Center - form + stats */}
+        {/* Center - stats + scan workspace */}
         <div
           style={{
             flex: 1,
@@ -923,115 +1377,109 @@ export default function MIInput() {
             minHeight: 0,
           }}
         >
-          {/* Stats row - frozen at top, fixed compact height */}
+          {/* Stats row - fully server-driven from the latest scan response
+              (SINGLE / GROUP_CREATE / GROUP_SCAN / Save Group). No hardcoded
+              values — falls back to 0 until a scan/target response arrives. */}
           <Row gutter={14} style={{ flexShrink: 0, height: 100 }}>
-            <StatCard title="PLAN" value={form.planQty} color="#3a6d95" />
-            <StatCard title="PROD" value={form.doneQty} color="#c9820a" />
+            <StatCard title="PLAN" value={stageStats.targetQty} color="#3a6d95" />
+            <StatCard title="PRODUCTION" value={stageStats.achievedQty} color="#c9820a" />
             <StatCard
-              title="TODAY DONE"
-              value={130}
+              title="ACHIEVED"
+              value={stageStats.achievedQty}
               color="#0f9a90"
-              chartPercent={Number(todayDonePercent)}
+              chartPercent={stageStats.achievementPercent}
             />
             <StatCard
-              title="DONE %"
-              value={`${todayDonePercent}%`}
+              title="REMAINS %"
+              value={`${stageStats.remainsQty}`}
               color="#d1483c"
-              chartPercent={Number(todayDonePercent)}
+              chartPercent={stageStats.targetQty ? (stageStats.remainingQty / stageStats.targetQty) * 100 : 0}
             />
           </Row>
 
-          <Card
-            styles={{ body: { padding: 18 } }}
-            style={{ border: "1px solid #e3e8ef", borderRadius: 10, flex: 1, minHeight: 0, overflow: "hidden" }}
-          >
-            <Row gutter={[16, 14]}>
-             
-              <Col span={12}>
-                <FieldLabel text="Select product" />
-                <Select
-                  style={{ width: "100%" }}
-                  placeholder="Search product..."
-                  value={form.productId}
-                  disabled={!isEditable}
-                  loading={productsLoading}
-                  showSearch
-                  allowClear
-                  optionFilterProp="label"
-                  filterOption={(input, option) =>
-                    option.label.toLowerCase().includes(input.toLowerCase())
-                  }
-                  options={products.map((p) => ({
-                    value: p.id,
-                    label: `${p.erp_no || "—"} — ${p.name}`,
-                  }))}
-                  onChange={handleErpSelect}
-                />
-              </Col>
-              <Col span={12}>
-                <FieldLabel text="WIP Bar Code" />
-                <Input
-                  disabled={!form.productId || mode !== "view"}
-                  ref={wipCodeRef}
-                  placeholder={!form.productId ? "Select a product first" : "Scan QR / enter code"}
-                  value={form.wipBarCode}
-                  onChange={updateField("wipBarCode")}
-                  onPressEnter={handleWipCodeScanned}
-                  suffix={<ScanOutlined style={{ color: "#3a6d95" }} />}
-                />
-              </Col>
+          {/* Scan workspace — left: product select + WIP scan + selected
+              product summary (and GROUP_CREATE staging when applicable).
+              Right: rolling feed of the most recently recorded scans. */}
+          <Row gutter={14} style={{ flex: 1, minHeight: 0 }}>
+            <Col span={12} style={{ height: "100%" }}>
+              <Card
+                styles={{ body: { padding: 18, height: "100%", display: "flex", flexDirection: "column", gap: 16 } }}
+                style={{ border: "1px solid #e3e8ef", borderRadius: 10, height: "100%" }}
+              >
+                <div>
+                  <FieldLabel text="Select product" />
+                  <Select
+                    style={{ width: "100%" }}
+                    placeholder="Search product..."
+                    value={form.productId}
+                    disabled={!isEditable}
+                    loading={productsLoading}
+                    showSearch
+                    allowClear
+                    optionFilterProp="label"
+                    filterOption={(input, option) =>
+                      option.label.toLowerCase().includes(input.toLowerCase())
+                    }
+                    options={products.map((p) => ({
+                      value: p.id,
+                      label: `${p.erp_no || "—"} — ${p.name}`,
+                    }))}
+                    onChange={handleErpSelect}
+                  />
+                </div>
 
-              <Col span={8}>
-                <FieldLabel text="Item Planned" />
-                <Input disabled value={form.itemPlanned} />
-              </Col>
-              <Col span={8}>
-                <FieldLabel text="Date" />
-                <Input value={form.date} disabled />
-              </Col>
-              <Col span={8}>
-                <FieldLabel text="Plan No" />
-                <Input value={form.planNo} disabled={!isEditable} onChange={updateField("planNo")} disabled />
-              </Col>
+                <div>
+                  <FieldLabel text="WIP Bar Code" />
+                  <Input
+                    disabled={!form.productId || mode !== "view"}
+                    ref={wipCodeRef}
+                    placeholder={!form.productId ? "Select a product first" : "Scan QR / enter code"}
+                    value={form.wipBarCode}
+                    onChange={updateField("wipBarCode")}
+                    onPressEnter={handleWipCodeScanned}
+                    suffix={<ScanOutlined style={{ color: "#3a6d95" }} />}
+                  />
+                </div>
 
-              <Col span={8}>
-                <FieldLabel text="Quality" />
-                <Select
-                  style={{ width: "100%" }}
-                  value={form.quality}
-                  disabled={!isEditable}
-                  options={QUALITY_OPTIONS}
-                  onChange={(val) => setForm((f) => ({ ...f, quality: val }))}
-                />
-              </Col>
-              <Col span={8}>
-                <FieldLabel text="Machine Name" />
-                <Input value={form.machineName} disabled={!isEditable}/>
-              </Col>
-              <Col span={8}>
-                <FieldLabel text="Station" />
-                <Input value={form.station} disabled onChange={updateField("station")} />
-              </Col>
-
-              <Col span={16}>
-                <FieldLabel text="Product Name" />
-                <Input value={form.productName} disabled  />
-              </Col>
-              <Col span={4}>
-                <FieldLabel text="Plan Qty" />
-                <Input value={form.planQty} disabled={!isEditable} onChange={updateField("planQty")} />
-              </Col>
-              <Col span={4}>
-                <FieldLabel text="Done Qty" />
-                <Input value={form.doneQty} />
-              </Col>
-
-              {/* ---- GROUP_CREATE staging area: local-only until "Save Group" ---- */}
-              {stageFlow?.scan_mode === "GROUP_CREATE" && (
-                <Col span={24}>
+                <div>
+                  <Text
+                    strong
+                    style={{
+                      display: "block",
+                      fontSize: 11,
+                      color: "#16a34a",
+                      letterSpacing: 0.3,
+                      textTransform: "uppercase",
+                      marginBottom: 6,
+                    }}
+                  >
+                    Selected Product
+                  </Text>
                   <div
                     style={{
-                      marginTop: 6,
+                      border: "1px solid #cfe3d5",
+                      background: "#f2faf4",
+                      borderRadius: 8,
+                      padding: "10px 12px",
+                      minHeight: 20,
+                    }}
+                  >
+                    {selected ? (
+                      <Text style={{ fontSize: 13, fontWeight: 700, color: "#1b2430" }}>
+                        {selected.erp_no || "—"} — {selected.name || "—"}
+                      </Text>
+                    ) : (
+                      <Text type="secondary" style={{ fontSize: 12.5 }}>
+                        No product selected yet
+                      </Text>
+                    )}
+                  </div>
+                </div>
+
+                {/* ---- GROUP_CREATE staging area: local-only until "Save Group" ---- */}
+                {stageFlow?.scan_mode === "GROUP_CREATE" && (
+                  <div
+                    style={{
                       padding: 12,
                       border: "1px solid #e3e8ef",
                       borderRadius: 8,
@@ -1068,10 +1516,58 @@ export default function MIInput() {
                       </Space>
                     )}
                   </div>
-                </Col>
-              )}
-            </Row>
-          </Card>
+                )}
+              </Card>
+            </Col>
+
+            <Col span={12} style={{ height: "100%" }}>
+              <Card
+                styles={{ body: { padding: 18, height: "100%", display: "flex", flexDirection: "column", minHeight: 0 } }}
+                style={{ border: "1px solid #e3e8ef", borderRadius: 10, height: "100%" }}
+              >
+                <Text
+                  strong
+                  style={{
+                    display: "block",
+                    fontSize: 11,
+                    color: "#3a6d95",
+                    letterSpacing: 0.3,
+                    textTransform: "uppercase",
+                    marginBottom: 10,
+                    flexShrink: 0,
+                  }}
+                >
+                  Recent Scanned ({recentScans.length} latest)
+                </Text>
+
+                <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {recentScans?.length === 0 && (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      No scans recorded yet.
+                    </Text>
+                  )}
+                  {recentScans?.map((s) => (
+                    <div  
+                      key={s.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        border: "1px solid #e3e8ef",
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                        background: "#fafbfc",
+                        animation: "recentScanIn 0.2s ease-out",
+                      }}
+                    >
+                      <Text style={{ fontSize: 12.5, fontWeight: 600, color: "#1b2430" }}>{s?.scanned_value?? ""}</Text>
+                      <Text type="secondary" style={{ fontSize: 11 }}>{s?.scanned_at? formatScanTime(s.scanned_at) : ""}</Text>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </Col>
+          </Row>
         </div>
       </div>
     </div>

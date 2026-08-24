@@ -4,6 +4,12 @@ import {
   ApiOutlined,
   SafetyCertificateOutlined,
   BellOutlined,
+  PrinterOutlined,
+  BankOutlined,
+  ProductOutlined,
+  DoubleRightOutlined,
+  ApartmentOutlined,
+  RollbackOutlined,
 } from "@ant-design/icons";
 
 import GeneralSettings from "./sections/GeneralSettings";
@@ -17,15 +23,15 @@ import ProductionTarget from "./Sections/ProductionTarget.jsx";
 import PrinterManager from "./Sections/ManagePrinters.jsx";
 
 const SECTIONS = [
-  { key: "general", label: "General", icon: <SettingOutlined />, component: GeneralSettings },
-  { key: "extSource", label: "External Sources", icon: <ApiOutlined />, component: ApiIntegrationSettings },
-  { key: "api", label: "API Integration", icon: <ApiOutlined />, component: ApiSourceMapping },
-  { key: "security", label: "Security", icon: <SafetyCertificateOutlined />, component: SecuritySettings },
+  { key: "factories", label: "Manage Factories", icon: <BankOutlined />, component: ManageFactories },
+  { key: "lines", label: "Manage Lines", icon: <RollbackOutlined />, component: ManageLines },
+  { key: "printers", label: "Manage Printers", icon: <PrinterOutlined />, component: PrinterManager },
+  // { key: "productionTarget", label: "Production Target", icon: <ProductOutlined />, component: ProductionTarget },
   { key: "notifications", label: "Notifications", icon: <BellOutlined />, component: NotificationSettings },
-  { key: "factories", label: "Manage Factories", icon: <ApiOutlined />, component: ManageFactories },
-  { key: "lines", label: "Manage Lines", icon: <ApiOutlined />, component: ManageLines },
-  { key: "printers", label: "Manage Printers", icon: <ApiOutlined />, component: PrinterManager },
-  { key: "productionTarget", label: "Production Target", icon: <ApiOutlined />, component: ProductionTarget },
+  { key: "security", label: "Security", icon: <SafetyCertificateOutlined />, component: SecuritySettings },
+  { key: "extSource", label: "External Sources", icon: <ApartmentOutlined />, component: ApiIntegrationSettings },
+  { key: "api", label: "API Integration", icon: <ApiOutlined />, component: ApiSourceMapping },
+  { key: "general", label: "General", icon: <SettingOutlined />, component: GeneralSettings },
 ];
 
 const Settings = () => {
@@ -34,7 +40,7 @@ const Settings = () => {
   const ActiveComponent = SECTIONS.find((s) => s.key === activeKey)?.component || GeneralSettings;
 
   return (
-    <div>
+    <div style={{ padding: 10, minHeight: "calc(100vh - 64px)", background: "#F8FAFC" }}>
       <div style={{ fontSize: 16, fontWeight: 600, color: "#1E293B", marginBottom: 16 }}>
         Settings
       </div>

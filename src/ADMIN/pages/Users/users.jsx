@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Form, Input, Select, Row, Col, Tag, Button, message } from "antd";
+import { Plus } from "lucide-react";
 
 import MasterHeader from "../Masters/components/MasterHeader";
 import MasterToolbar from "../Masters/components/MasterToolbar";
@@ -149,10 +150,15 @@ const Users = () => {
   const lineOptionsForForm = allLines.filter((l) => l.factoryId === factoryValue);
   const stageOptionsForForm = allStages.filter((s) => s.lineId === lineValue);
 
-  const openAddModal = () => {
+  const openAddModal = (preset = {}) => {
     setEditingRecord(null);
     form.resetFields();
-    form.setFieldsValue({ role: "OPERATOR", status: "Active" });
+    form.setFieldsValue({
+      role: "OPERATOR",
+      status: "Active",
+      ...(preset.factoryId ? { factoryId: preset.factoryId } : {}),
+      ...(preset.lineId ? { lineId: preset.lineId } : {}),
+    });
     setFormOpen(true);
   };
 
@@ -269,31 +275,60 @@ const Users = () => {
     }
   };
 
-  const columns = [
-    { title: "Username", dataIndex: "username", key: "username" },
-    { title: "Name", dataIndex: "name", key: "name" },
-    { title: "Email", dataIndex: "email", key: "email", ellipsis: true },
-    {
-      title: "Role",
-      dataIndex: "role",
-      key: "role",
-      render: (v) => <Tag color={ROLE_COLORS[v] || "default"}>{v}</Tag>,
-    },
-    { title: "Factory", dataIndex: "factoryName", key: "factoryName" },
+
+  const lineGroups = useMemo(() => {
+    const map = new Map();
+    filteredData.forEach((user) => {
+      const key = user.lineId || `no-line-${user.factoryId || "none"}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          lineId: user.lineId,
+          lineName: user.lineId ? user.lineName : "No Line / Admin",
+          factoryId: user.factoryId,
+          factoryName: user.factoryName,
+          users: [],
+        });
+      }
+      map.get(key).users.push(user);
+    });
+    return Array.from(map.values());
+  }, [filteredData]);
+
+  const lineColumns = [
     { title: "Line", dataIndex: "lineName", key: "lineName" },
-    { title: "Stage", dataIndex: "stageName", key: "stageName" },
-    { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
-    { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
+    { title: "Factory", dataIndex: "factoryName", key: "factoryName" },
+    { title: "Users", key: "userCount", render: (_, r) => r.users.length },
     {
-      title: "Password",
-      key: "password",
-      render: (_, record) => (
-        <Button type="link" style={{ padding: 0 }} onClick={() => openPasswordModal(record)}>
-          Change
-        </Button>
-      ),
+      title: "Active / Inactive",
+      key: "statusSummary",
+      render: (_, r) => {
+        const active = r.users.filter((u) => u.status === "Active").length;
+        return `${active} Active / ${r.users.length - active} Inactive`;
+      },
     },
   ];
+
+// Line dropped from here — redundant once grouped; Stage kept since it's more specific.
+const userColumns = [
+  { title: "Username", dataIndex: "username", key: "username" },
+  { title: "Name", dataIndex: "name", key: "name" },
+  { title: "Email", dataIndex: "email", key: "email", ellipsis: true },
+  { title: "Role", dataIndex: "role", key: "role", render: (v) => <Tag color={ROLE_COLORS[v] || "default"}>{v}</Tag> },
+  { title: "Stage", dataIndex: "stageName", key: "stageName" },
+  { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
+  { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
+  {
+    title: "Password",
+    key: "password",
+    render: (_, record) => (
+      <Button type="link" style={{ padding: 0 }} onClick={() => openPasswordModal(record)}>
+        Change
+      </Button>
+    ),
+  },
+];
+
 
   return (
     <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius: 16, overflow: "hidden" }}>
@@ -315,11 +350,34 @@ const Users = () => {
       />
 
       <MasterTable
-        columns={columns}
-        data={filteredData}
+        columns={lineColumns}
+        data={lineGroups}
         loading={loading}
-        onEdit={openEditModal}
-        onDelete={setDeleteTarget}
+        rowKey="id"
+        expandable={{
+          expandedRowRender: (record) => (
+            <div style={{ padding: "4px 0 8px" }}>
+              {record.lineId && (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                  <Button
+                    type="dashed"
+                    icon={<Plus size={14} />}
+                    onClick={() => openAddModal({ factoryId: record.factoryId, lineId: record.lineId })}
+                  >
+                    Add User
+                  </Button>
+                </div>
+              )}
+              <MasterTable
+                columns={userColumns}
+                data={record.users}
+                rowKey="id"
+                onEdit={openEditModal}
+                onDelete={setDeleteTarget}
+              />
+            </div>
+          ),
+        }}
       />
 
       <MasterFormModal

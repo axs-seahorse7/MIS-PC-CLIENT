@@ -69,9 +69,9 @@ export default function Navbar({ collapsed, setCollapsed, userName = "User", onL
       {/* Left: logo + collapse toggle + search */}
       <Space size={20} align="center">
         <Space size={8} align="center">
-          <img src={LOGO_URL} alt="PG logo" style={{ height: 26 }} />
+          <img src={LOGO_URL} alt="PG logo" style={{ height: 30 }} />
           <Title level={5} style={{ margin: 0, color: "#1b2430" }}>
-            PG MIS
+           SIMSE
           </Title>
         </Space>
 

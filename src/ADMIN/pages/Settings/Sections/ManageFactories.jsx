@@ -78,7 +78,6 @@ const ManageFactory = () => {
     setEditingRecord(record);
     form.setFieldsValue({
       name: record.name,
-      code: record.code,
       address: record.address === "-" ? undefined : record.address,
       description: record.description === "-" ? undefined : record.description,
       isActive: record.isActive,
@@ -96,7 +95,6 @@ const ManageFactory = () => {
 
     const payload = {
       name: values.name,
-      code: values.code,
       address: values.address,
       description: values.description,
       is_active: values.isActive,
@@ -195,21 +193,13 @@ const ManageFactory = () => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item
-                name="code"
-                label="Factory Code"
-                rules={[{ required: true, message: "Please enter factory code" }]}
-                style={{ marginBottom: 16 }}
-              >
-                <Input placeholder="e.g. SUPA" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
               <Form.Item name="address" label="Address" style={{ marginBottom: 16 }}>
                 <Input placeholder="Optional address" />
+              </Form.Item>
+            </Col>
+            <Col span={24}>
+              <Form.Item name="description" label="Description" style={{ marginBottom: 0 }}>
+                <TextArea rows={3} placeholder="Optional description" />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -225,13 +215,7 @@ const ManageFactory = () => {
             </Col>
           </Row>
 
-          <Row gutter={16}>
-            <Col span={24}>
-              <Form.Item name="description" label="Description" style={{ marginBottom: 0 }}>
-                <TextArea rows={3} placeholder="Optional description" />
-              </Form.Item>
-            </Col>
-          </Row>
+
         </Form>
       </MasterFormModal>
 

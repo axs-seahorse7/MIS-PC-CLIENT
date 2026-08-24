@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo  } from "react";
 import { Form, Select, InputNumber, Switch, Input, Row, Col, Tag, Alert, message, Modal, Descriptions } from "antd";
-
+import SortableFlowList from "../../../components/SortableDnd/SortableFlowList";
 import MasterHeader from "../Masters/components/MasterHeader";
 import MasterToolbar from "../Masters/components/MasterToolbar";
 import MasterTable from "../Masters/components/MasterTable";
@@ -137,7 +137,7 @@ const ProductStage = () => {
       setOptionsLoading(true);
 
       const [productsRes, stagesRes, flowsRes] = await Promise.all([
-        api.get("/products/all"),
+        api.get("/products/admin"),
         api.get("/stages/all"),
         api.get("/product-stage-flow/all"),
       ]);
@@ -228,7 +228,6 @@ const ProductStage = () => {
     const payload = {
       product_id: values.productId,
       stage_id: values.stageId,
-      sequence_no: values.sequenceNo,
       scan_mode: values.scanMode,
       is_external_dependency: isExternal,
       external_source: isExternal ? values.externalSource : null,
@@ -276,7 +275,7 @@ const ProductStage = () => {
     try {
       setDeleting(true);
       await api.delete(`/product-stage-flow/delete/${deleteTarget.id}`);
-      setFlows((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      await loadInitialData(); // sequence numbers shifted server-side — refetch to stay in sync
       message.success("Product stage removed");
       setDeleteTarget(null);
     } catch (err) {
@@ -334,8 +333,40 @@ const ProductStage = () => {
     { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
   ];
 
+  const productGroups = useMemo(() => {
+  const map = new Map();
+  filteredData.forEach((flow) => {
+    if (!map.has(flow.productId)) {
+      map.set(flow.productId, { id: flow.productId, productName: flow.productName, stages: [] });
+    }
+    map.get(flow.productId).stages.push(flow);
+  });
+  map.forEach((g) => g.stages.sort((a, b) => a.sequenceNo - b.sequenceNo));
+  return Array.from(map.values());
+}, [filteredData]);
+
+const productColumns = [
+  { title: "Product", dataIndex: "productName", key: "productName" },
+  { title: "Stages in Flow", key: "count", render: (_, r) => r.stages.length },
+];
+
+const handleReorder = async (productId, orderedIds) => {
+  // optimistic: renumber locally first
+  setFlows((prev) => {
+    const map = new Map(orderedIds.map((id, idx) => [id, idx + 1]));
+    return prev.map((f) => (map.has(f.id) ? { ...f, sequenceNo: map.get(f.id) } : f));
+  });
+
+  try {
+    await api.patch("/product-stage-flow/reorder", { productId, orderedIds });
+  } catch (err) {
+    message.error(err?.response?.data?.message || "Failed to reorder — reverting");
+    loadInitialData(); // revert to server truth on failure
+  }
+};
+
   return (
-    <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius: 16, overflow: "hidden" }}>
+    <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius: 5, overflow: "hidden" }}>
       <div style={{ padding: "20px 20px 0" }}>
         <MasterHeader
           title="Product Stage Flow"
@@ -352,11 +383,23 @@ const ProductStage = () => {
       />
 
       <MasterTable
-        columns={columns}
-        data={filteredData}
+        columns={productColumns}
+        data={productGroups}
         loading={loading}
-        onEdit={openEditModal}
-        onDelete={setDeleteTarget}
+        rowKey="id"
+        expandable={{
+          expandedRowRender: (group) => (
+            <div style={{ padding: "8px 4px" }}>
+              <SortableFlowList
+                productId={group.id}
+                items={group.stages}
+                onEdit={openEditModal}
+                onDelete={setDeleteTarget}
+                onReorder={handleReorder}
+              />
+            </div>
+          ),
+        }}
       />
 
       <MasterFormModal
@@ -403,16 +446,7 @@ const ProductStage = () => {
           </Row>
 
           <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="sequenceNo"
-                label="Sequence Number"
-                rules={[{ required: true, message: "Please enter sequence number" }]}
-                style={{ marginBottom: 16 }}
-              >
-                <InputNumber min={1} style={{ width: "100%" }} placeholder="e.g. 1" />
-              </Form.Item>
-            </Col>
+            
             <Col span={12}>
               <Form.Item
                 name="scanMode"
