@@ -15,12 +15,14 @@ const SCAN_MODE_OPTIONS = [
   { value: "SINGLE", label: "Single" },
   { value: "GROUP_CREATE", label: "Group Create" },
   { value: "GROUP_SCAN", label: "Group Scan" },
+  { value: "CUSTOMER_BINDING", label: "Customer Binding" },
 ];
 
 const SCAN_MODE_COLOR = {
   SINGLE: "default",
   GROUP_CREATE: "purple",
   GROUP_SCAN: "geekblue",
+  CUSTOMER_BINDING: "green",
 };
 
 const EXTERNAL_SOURCE_TYPE_OPTIONS = [

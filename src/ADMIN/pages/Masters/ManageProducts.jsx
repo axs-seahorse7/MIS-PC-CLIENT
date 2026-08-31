@@ -20,7 +20,7 @@ const formatCreatedDate = (dateInput) =>
     year: "numeric",
   });
 
-// Server sends/expects { category_id, name, description, remarks, erp_no }.
+// Server sends/expects { category_id, name, description, remarks, erp_no, part_code }.
 // UI/form uses productName / productDescription for readability;
 // categoryOptions (fetched live) is used to resolve categoryId -> categoryName for display.
 //
@@ -40,13 +40,14 @@ const normalizeProduct = (item, categoryOptions = []) => ({
   productDescription: item.description,
   remarks: item.remarks,
   erpNo: item.erp_no,
+  partCode: item.part_code,
   status: item.status || (item.is_active === 0 ? "Inactive" : "Active"),
   createdDate: formatCreatedDate(item.created_at || item.createdAt || item.createdDate),
 });
 
 // Number of "real" data columns after S.No — used to merge a category
 // group row into a single spanning cell (same pattern as Production Orders).
-const DATA_COLUMN_COUNT = 7;
+const DATA_COLUMN_COUNT = 8;
 const hideForGroup = () => ({ children: null, props: { colSpan: 0 } });
 
 const ManageProducts = () => {
@@ -108,7 +109,8 @@ const ManageProducts = () => {
     const matchesSearch =
       item.categoryName.toLowerCase().includes(query) ||
       item.productName.toLowerCase().includes(query) ||
-      (item.productDescription || "").toLowerCase().includes(query);
+      (item.productDescription || "").toLowerCase().includes(query) ||
+      (item.partCode || "").toLowerCase().includes(query);
     const matchesStatus = statusFilter === "All" || item.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -154,6 +156,7 @@ const ManageProducts = () => {
       productName: record.productName,
       productDescription: record.productDescription,
       erpNo: record.erpNo,
+      partCode: record.partCode,
       remarks: record.remarks,
       status: record.status,
     });
@@ -175,6 +178,7 @@ const ManageProducts = () => {
       description: values.productDescription,
       remarks: values.remarks,
       status: values.status,
+      partCode: values.partCode,
       // When auto-generate is on, omit erpNo and let the backend assign one;
       // when off, send whatever the user typed.
       autoGenerateErp,
@@ -262,6 +266,12 @@ const ManageProducts = () => {
       render: (v, r) => (r.isGroup ? hideForGroup() : v),
     },
     {
+      title: "Part Code",
+      dataIndex: "partCode",
+      key: "partCode",
+      render: (v, r) => (r.isGroup ? hideForGroup() : v),
+    },
+    {
       title: "Description",
       dataIndex: "productDescription",
       key: "productDescription",
@@ -308,7 +318,7 @@ const ManageProducts = () => {
       <MasterToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by category, product name or description..."
+        searchPlaceholder="Search by category, product name, description or part code..."
         statusValue={statusFilter}
         onStatusChange={setStatusFilter}
       />
@@ -365,7 +375,7 @@ const ManageProducts = () => {
           </Row>
 
           <Row gutter={16}>
-            <Col span={24}>
+            <Col span={12}>
               <div
                 style={{
                   display: "flex",
@@ -406,6 +416,15 @@ const ManageProducts = () => {
                   placeholder={autoGenerateErp ? "Will be auto-generated on save" : "e.g. PC26080001"}
                   disabled={autoGenerateErp}
                 />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="partCode"
+                label="Part Code"
+                style={{ marginBottom: 16 }}
+              >
+                <Input placeholder="e.g. 7020000345" />
               </Form.Item>
             </Col>
           </Row>

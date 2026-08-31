@@ -31,22 +31,108 @@ const BARCODE_ZPL = {
  * Builds a clean, single-line ZPL label string optimized for 300 DPI Zebra hardware.
  * @param {{ barcodeData: string }} opts
  */
-export function buildBoxLabelZpl({ barcodeData }) {
+export function buildBoxLabelZpl({
+  barcodeData,
+  productName,
+  partCode,
+  sapCode,
+  quantity,
+  packedAt,
+}) {
+  const date = packedAt
+    ? new Date(packedAt).toLocaleDateString("en-GB")
+    : "";
+
   return (
     "^XA" +
-    "^PW900" +
+    "^PW1200" +
     "^LL600" +
     "^CI28" +
 
-    // QR
-    "^FO50,50" +
-    "^BQN,2,5" +
-    `^FDQA,${barcodeData}^FS` +
+    // ==================================================
+    // OUTER BORDER
+    // Margin: Left/Right 80 | Top/Bottom 60
+    // ==================================================
+    "^FO80,60^GB1040,480,3^FS" +
 
-    // BOX CODE directly below
-    "^FO50,250" +
-    "^A0N,40,40" +
-    `^FD${barcodeData}^FS` +
+    // ==================================================
+    // COMPANY NAME
+    // ==================================================
+    "^FO80,85" +
+    "^A0N,42,42" +
+    "^FB1040,1,0,C,0" +
+    "^FDPG TECHNOPLAST PRIVATE LIMITED^FS" +
+
+    // HEADER SEPARATOR
+    "^FO80,135^GB1040,3,3^FS" +
+
+    // ==================================================
+    // DATE — TOP RIGHT
+    // ==================================================
+    "^FO890,155" +
+    "^A0N,32,32" +
+    `^FD${date}^FS` +
+
+    // DATE / PRODUCT SEPARATOR
+    "^FO80,205^GB1040,3,3^FS" +
+
+    // ==================================================
+    // PRODUCT
+    // ==================================================
+    "^FO130,225" +
+    "^A0N,38,38" +
+    "^FDProduct^FS" +
+
+    "^FO340,220" +
+    "^A0N,42,42" +
+    `^FD${productName || ""}^FS` +
+
+    // ==================================================
+    // LEFT QR — SAP CODE
+    // ==================================================
+    "^FO120,340" +
+    "^BQN,2,7" +
+    `^FDQA,${sapCode || ""}^FS` +
+
+    // ==================================================
+    // PART CODE
+    // ==================================================
+    "^FO350,330" +
+    "^A0N,34,34" +
+    "^FDPart Code^FS" +
+
+    "^FO560,320" +
+    "^A0N,38,38" +
+    `^FD${partCode || ""}^FS` +
+
+    // ==================================================
+    // SAP CODE
+    // ==================================================
+    "^FO350,395" +
+    "^A0N,34,34" +
+    "^FDSAP Code^FS" +
+
+    "^FO560,395" +
+    "^A0N,38,38" +
+    `^FD${sapCode || ""}^FS` +
+
+    // ==================================================
+    // TOTAL QTY
+    // ==================================================
+    "^FO350,455" +
+    "^A0N,34,34" +
+    "^FDTotal Qty^FS" +
+
+    "^FO560,450" +
+    "^A0N,50,50" +
+    `^FD${quantity ?? ""}^FS` +
+
+    // ==================================================
+    // RIGHT QR — BOX CODE
+    // ==================================================
+    "^FO860,280" +
+    "^BQN,2,11" +
+    `^FDQA,${barcodeData || ""}^FS` +
 
     "^XZ"
   );
