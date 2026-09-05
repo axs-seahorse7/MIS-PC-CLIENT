@@ -20,10 +20,15 @@ import MasterHeader from "../../pages/Masters/components/MasterHeader";
 import MasterToolbar from "../../pages/Masters/components/MasterToolbar";
 import MasterTable from "../../pages/Masters/components/MasterTable";
 import MasterFormModal from "../../pages/Masters/components/MasterFormModal";
+import LabelTemplatePreview from "../Settings/components/Labeltemplatepreview";
 
 const { Text } = Typography;
 
 const BARCODE_FORMATS = ["CODE128", "QR", "EAN13", "DATAMATRIX"];
+
+// This component only ever deals with BOX_LABEL templates — the type is
+// hardcoded here and on the server; we don't expose a template-type picker.
+const LABEL_TEMPLATE_TYPE = "BOX_LABEL";
 
 // ------------------------------------------------------------------
 // Barcode VALUE rule — separate from barcode_format (which is the
@@ -220,6 +225,13 @@ export default function PackagingRuleManager() {
   const [search, setSearch] = useState("");
   const selectedProductId = Form.useWatch("product_id", form);
 
+
+  const selectedStageId = Form.useWatch("stage_id", form);
+  const selectedBoxSize = Form.useWatch("box_size", form);
+  const selectedTemplateId = Form.useWatch("label_template_id", form);
+
+
+
   // Barcode value-rule segments, kept as local state and merged into the
   // payload on submit — easier to manage per-row conditional fields here
   // than nesting it inside antd's Form.List.
@@ -248,12 +260,19 @@ export default function PackagingRuleManager() {
     enabled: !!selectedProductId,
   });
 
-  // Only offer the PACKAGING stage in this dropdown — packaging rules attach
-  // to the packaging step of the flow, not every step.
-  const stages = useMemo(
-    () => allStages.filter((s) => (s.stage_name || s.name || "").toUpperCase().includes("PACKAGING")),
-    [allStages]
-  );
+  // Label templates for the box label — this component only ever deals with
+  // BOX_LABEL, so the type is hardcoded in the request, not a user-facing field.
+  const { data: labelTemplates = [] } = useQuery({
+    queryKey: ["label-templates", LABEL_TEMPLATE_TYPE],
+    queryFn: async () =>
+      (await api.get(`/label-templates/type/${LABEL_TEMPLATE_TYPE}`)).data,
+  });
+
+  // // Only offer the PACKAGING stage in this dropdown — packaging rules attach
+  // // to the packaging step of the flow, not every step.
+  // const stages = useMemo(() => allStages.filter((s) => (s.stage_name || s.name || "").toUpperCase().includes("PACKAGING")),
+  //   [allStages]
+  // );
 
   const productMap = useMemo(
     () => Object.fromEntries(products?.map((p) => [p.id, p.name])),
@@ -268,6 +287,11 @@ export default function PackagingRuleManager() {
   const stageMap = useMemo(
     () => Object.fromEntries(allStages.map((s) => [s.stage_id, s.stage_name || s.name])),
     [allStages]
+  );
+
+  const templateMap = useMemo(
+    () => Object.fromEntries(labelTemplates.map((t) => [t.id, t.name])),
+    [labelTemplates]
   );
 
   // ---- mutations ----
@@ -297,6 +321,7 @@ export default function PackagingRuleManager() {
     onError: (err) => {
       message.error(err?.response?.data?.message || "Delete failed");
     },
+
   });
 
   const toggleActiveMutation = useMutation({
@@ -307,11 +332,11 @@ export default function PackagingRuleManager() {
     onError: () => message.error("Failed to toggle status"),
   });
 
+
   // ---- segment helpers ----
   const addSegment = (type) => setSegments((prev) => [...prev, EMPTY_SEGMENT(type)]);
 
-  const updateSegment = (index, next) =>
-    setSegments((prev) => prev.map((s, i) => (i === index ? next : s)));
+  const updateSegment = (index, next) => setSegments((prev) => prev.map((s, i) => (i === index ? next : s)));
 
   const removeSegment = (index) => setSegments((prev) => prev.filter((_, i) => i !== index));
 
@@ -320,6 +345,24 @@ export default function PackagingRuleManager() {
   }, [segments]);
 
   const preview = useMemo(() => (segments.length ? buildPreview(segments) : ""), [segments]);
+
+  const selectedTemplate = useMemo(
+    () => labelTemplates.find((t) => t.id === selectedTemplateId) || null,
+    [labelTemplates, selectedTemplateId]
+  );
+
+  // Keys here must match the `field` your BOX_LABEL template's text/QR
+  // elements were built with in the Label Template Editor — adjust as needed.
+  const previewSampleData = useMemo(
+    () => ({
+      barcode: preview || "PREVIEW",
+      product_name: productMap[selectedProductId] || "Product Name",
+      box_size: selectedBoxSize ?? "-",
+      stage_name: stageMap[selectedStageId] || "-",
+      date: new Date().toLocaleDateString(),
+    }),
+    [preview, productMap, selectedProductId, selectedBoxSize, stageMap, selectedStageId]
+  );
 
   // ---- modal helpers ----
   const openCreateModal = () => {
@@ -342,6 +385,7 @@ export default function PackagingRuleManager() {
       box_size: record.box_size,
       printer_id: record.printer_id,
       barcode_format: record.barcode_format,
+      label_template_id: record.label_template_id ?? undefined,
       is_active: !!record.is_active,
     });
     // barcode_rule comes back from the server as the segments array —
@@ -413,12 +457,18 @@ export default function PackagingRuleManager() {
     },
     {
       title: "Barcode Rule",
+      width:180,
       dataIndex: "barcode_rule",
       render: (segs) => (
         <Text code style={{ fontSize: 12 }}>
           {Array.isArray(segs) && segs.length ? buildPreview(segs) : "—"}
         </Text>
       ),
+    },
+    {
+      title: "Label Template",
+      dataIndex: "label_template_name",
+      render: (name) => name || "-",
     },
     {
       title: "Active",
@@ -436,7 +486,8 @@ export default function PackagingRuleManager() {
       render: (_, record) => (
         <Space>
           <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
-          <Popconfirm title="Delete this packaging rule?" onConfirm={() => deleteMutation.mutate(record.id)}>
+          <Popconfirm title="Delete this packaging rule?" onConfirm={() => {
+            deleteMutation.mutate(record.id)}}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
@@ -494,7 +545,7 @@ export default function PackagingRuleManager() {
             rules={[{ required: true, message: "Please select packaging stage" }]}
           >
             <Select placeholder="Select packaging stage">
-              {stages.map((stage) => (
+              {allStages?.map((stage) => (
                 <Select.Option key={stage.stage_id} value={stage.stage_id}>
                   {stage.stage_name || stage.name}
                 </Select.Option>
@@ -530,6 +581,33 @@ export default function PackagingRuleManager() {
           >
             <Select placeholder="Select format" options={BARCODE_FORMATS.map((f) => ({ label: f, value: f }))} />
           </Form.Item>
+
+          <Form.Item
+            name="label_template_id"
+            label="Box Label Template"
+            rules={[{ required: true, message: "Label template is required" }]}
+          >
+            <Select
+              placeholder="Select label template"
+              showSearch
+              optionFilterProp="children"
+              notFoundContent="No BOX_LABEL templates found"
+              options={labelTemplates.map((t) => ({
+                label: `${t.name} (${t.width}×${t.height})`,
+                value: t.id,
+              }))}
+            />
+          </Form.Item>
+
+          {selectedTemplate && (
+            <div style={{ marginBottom: 16 }}>
+              <LabelTemplatePreview
+                template={selectedTemplate}
+                sampleData={previewSampleData}
+                maxWidth={400}
+              />
+            </div>
+          )}
 
           {/* ---- Barcode VALUE rule builder ---- */}
           <Form.Item label="Barcode Value Rule" required style={{ marginBottom: 8 }}>

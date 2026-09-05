@@ -24,7 +24,6 @@ export default function PrinterManager() {
     queryFn: async () => (await api.get("/printers")).data,
   });
 
-  console.log("Fetched printers:", printers);
 
   const saveMutation = useMutation({
     mutationFn: async (values) => {
@@ -149,7 +148,18 @@ export default function PrinterManager() {
             searchPlaceholder="Search name, IP, type..."
           />
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+        <Button 
+        type="primary" 
+        icon={<PlusOutlined />} 
+        onClick={openCreateModal}
+        style={{
+          background: "linear-gradient(90deg, #5b5ce2 0%, #0ea5e9 100%)",
+          border: "none",
+          fontWeight: 600,
+          borderRadius: 8,
+          color: "white"
+        }}
+        >
           New Printer
         </Button>
       </div>

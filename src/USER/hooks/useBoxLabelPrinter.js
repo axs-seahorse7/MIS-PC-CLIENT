@@ -1,7 +1,6 @@
 import { notification } from "antd";
-import api from "../../services/API/api.js"; // adjust path if your folder depth differs
-import { printRawZpl } from "../../utils/qzTray"; // adjust path if your folder depth differs
-import { buildBoxLabelZpl } from "../../utils/zplBuilder"; // adjust path if your folder depth differs
+import api from "../../services/API/api.js";
+import { printRawZpl } from "../../utils/qzTray";
 
 export default function useBoxLabelPrinter() {
   const printBoxLabel = async (packaging) => {
@@ -16,34 +15,28 @@ export default function useBoxLabelPrinter() {
       return;
     }
 
-    console.log("🖨️ PRINT BOX LABEL CALLED", {
-      jobId: packaging.print_job_id,
-      barcode: packaging.barcode_data,
-      product: packaging.product_name,
-      sapCode: packaging.sap_code,
-      partCode: packaging.part_code,
-      quantity: packaging.quantity,
-      packedAt: packaging.packed_at,
-      time: new Date().toISOString(),
-    });
 
     try {
-      const zpl = buildBoxLabelZpl({
-        barcodeData: packaging.barcode_data,
-        productName: packaging.product_name,
-        partCode: packaging.part_code,
-        sapCode: packaging.sap_code,
-        quantity: packaging.quantity,
-        packedAt: packaging.packed_at,
-      });
+      // -------------------------------------------------------
+      // Get production ZPL generated from the saved template
+      // -------------------------------------------------------
+      const { data: response } = await api.get(`/print/box-print-jobs/${packaging.print_job_id}/zpl`);
+      const zpl = response?.data?.zpl;
 
-      console.log("Sending ZPL payload:", zpl);
+      if (!zpl) {
+        throw new Error("Server did not return Master Label ZPL.");
+      }
 
+
+      // -------------------------------------------------------
+      // Send to QZ Tray
+      // -------------------------------------------------------
       await printRawZpl(printerName, zpl);
 
-      console.log("✅ Print job completely handed over to QZ Tray!");
-
-      await api.patch(`/print/box-print-jobs/${packaging.print_job_id}`, { status: "PRINTED" });
+      // -------------------------------------------------------
+      // Mark print job successful
+      // -------------------------------------------------------
+      await api.patch(`/print/box-print-jobs/${packaging.print_job_id}`,{status: "PRINTED"});
 
       notification.success({
         message: "Box label printed",
@@ -51,16 +44,22 @@ export default function useBoxLabelPrinter() {
         placement: "topRight",
       });
     } catch (err) {
-      console.error("❌ PRINT FAILED:", err);
+      console.error("❌ MASTER LABEL PRINT FAILED:", err);
 
-      await api.patch(`/print/box-print-jobs/${packaging.print_job_id}`, {
-        status: "FAILED",
-        error_message: err?.message || "Print failed",
-      });
+      try {
+        await api.patch(`/print/box-print-jobs/${packaging.print_job_id}`,
+          {
+            status: "FAILED",
+            error_message: err?.message || "Print failed",
+          }
+        );
+      } catch (statusErr) {
+        console.error("❌ Failed to update print job status:", statusErr);
+      }
 
       notification.error({
         message: "Print failed",
-        description: err?.message || "Could not send label to printer.",
+        description:err?.message || "Could not send label to printer.",
         placement: "topRight",
       });
     }

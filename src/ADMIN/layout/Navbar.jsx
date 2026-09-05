@@ -8,7 +8,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 
-import { Badge, Avatar, Breadcrumb, Input, Dropdown, Space } from "antd";
+import { Avatar, Breadcrumb, Input, Dropdown, Space } from "antd";
 import { useLocation } from "react-router-dom";
 
 const pageTitles = {
@@ -40,10 +40,12 @@ const Navbar = ({ collapsed, toggleSidebar }) => {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
+        padding: "0 4px",
       }}
     >
       <style>{`
         .simse-icon-btn {
+          position: relative;
           width: 38px;
           height: 38px;
           border-radius: 10px;
@@ -53,57 +55,128 @@ const Navbar = ({ collapsed, toggleSidebar }) => {
           cursor: pointer;
           background: #F8FAFC;
           border: 1px solid #F1F5F9;
-          transition: background .18s ease;
+          color: #64748B;
+          transition: background .18s ease, color .18s ease, border-color .18s ease, transform .12s ease;
         }
-        .simse-icon-btn:hover { background: #F1F5F9; }
+        .simse-icon-btn:hover {
+          background: #EFF3FF;
+          border-color: #DCE4FB;
+          color: #3b5ce2;
+        }
+        .simse-icon-btn:active {
+          transform: scale(0.94);
+        }
+
+        .simse-notif-dot {
+          position: absolute;
+          top: 7px;
+          right: 7px;
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #ef4444;
+          border: 2px solid #fff;
+          box-shadow: 0 0 0 0 rgba(239,68,68,0.6);
+          animation: notifPulse 2.2s infinite;
+        }
+        @keyframes notifPulse {
+          0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.45); }
+          70%  { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+          100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+        }
+
         .simse-search .ant-input-affix-wrapper {
           border-radius: 10px !important;
           border-color: #F1F5F9 !important;
           background: #F8FAFC !important;
           height: 38px;
+          transition: border-color .18s ease, background .18s ease, box-shadow .18s ease, width .2s ease;
         }
-        .simse-search .ant-input-affix-wrapper:hover,
-        .simse-search .ant-input-affix-wrapper-focused {
+        .simse-search .ant-input-affix-wrapper:hover {
           border-color: #CBD5E1 !important;
           background: #fff !important;
+        }
+        .simse-search .ant-input-affix-wrapper-focused {
+          border-color: #3b82f6 !important;
+          background: #fff !important;
+          box-shadow: 0 0 0 3px rgba(59,130,246,0.12) !important;
+        }
+        .simse-search kbd {
+          font-family: inherit;
+          font-size: 11px;
+          color: #94A3B8;
+          background: #fff;
+          border: 1px solid #E2E8F0;
+          border-radius: 5px;
+          padding: 1px 6px;
+        }
+
+        .simse-crumb-current {
+          font-weight: 600;
+          color: #1e293b !important;
+        }
+
+        .simse-profile-trigger {
+          cursor: pointer;
+          padding: 4px 10px 4px 4px;
+          border-radius: 12px;
+          transition: background .18s ease;
+        }
+        .simse-profile-trigger:hover {
+          background: #F8FAFC;
+        }
+
+        .simse-avatar-ring {
+          padding: 2px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, #5b5ce2 0%, #3b82f6 50%, #0ea5e9 100%);
+          display: flex;
         }
       `}</style>
 
       {/* Left Side */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <div className="simse-icon-btn" onClick={toggleSidebar}>
           {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </div>
 
-        <div >
+        <div>
           <Breadcrumb
-            separator={<ChevronRight size={12} />}
-            items={[{ title: "Admin" }, { title: currentPage }]}
-            style={{ fontSize: 12, padding: "4px 10px", display: "flex", alignItems: "center", gap: 4, color: "#94A3B8", justifyContent: "center", borderRadius: 10, background: "#F8FAFC" }}
+            separator={<ChevronRight size={12} color="#CBD5E1" />}
+            items={[
+              { title: <span style={{ color: "#94A3B8", fontSize: 12 }}>Admin</span> },
+              { title: <span className="simse-crumb-current" style={{ fontSize: 13 }}>{currentPage}</span> },
+            ]}
           />
         </div>
       </div>
 
       {/* Right Side */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <Input
           className="simse-search"
           placeholder="Search..."
-          prefix={<Search size={15} color="#94A3B8" />}
-          style={{ width: 230, fontSize: 13 }}
+          prefix={<Search size={15} color="#94A3B8" style={{ marginRight: 2 }} />}
+          suffix={<kbd>⌘K</kbd>}
+          style={{ width: 240, fontSize: 13 }}
         />
 
-        <Badge count={5} size="small" color="#111827">
-          <div className="simse-icon-btn">
-            <Bell size={17} />
-          </div>
-        </Badge>
+        <div className="simse-icon-btn">
+          <Bell size={17} />
+          <span className="simse-notif-dot" />
+        </div>
 
         <div style={{ width: 1, height: 28, background: "#F1F5F9" }} />
 
         <Dropdown menu={{ items: profileItems }} trigger={["click"]}>
-          <Space style={{ cursor: "pointer" }} size={8}>
-            <Avatar size={36} style={{ background: "#2563EB" }} icon={<UserCircle2 size={18} />} />
+          <Space className="simse-profile-trigger" size={10}>
+            <div className="simse-avatar-ring">
+              <Avatar
+                size={32}
+                style={{ background: "#fff", color: "#3b5ce2" }}
+                icon={<UserCircle2 size={18} />}
+              />
+            </div>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A", lineHeight: 1.2 }}>
                 Admin

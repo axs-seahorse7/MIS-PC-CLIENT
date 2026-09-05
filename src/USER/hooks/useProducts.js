@@ -11,10 +11,8 @@ export default function useProducts() {
       try {
         setProductsLoading(true);
         const res = await api.get("/products/all");
-        console.log("Fetched products:", res?.data);
         setProducts(res?.data?.data || res?.data || []);
       } catch (err) {
-        console.error("Error fetching products:", err);
         notification.error({
           message: "Failed to load products",
           description: "Could not fetch the product list. Please retry.",

@@ -31,9 +31,7 @@ export default function useStageFlow({ productId, user }) {
         setStageFlowRows(sorted);
 
         const matched = sorted.find((r) => r.stage_id === user?.stage?.id) || null;
-        if (!matched) {
-          console.warn("No matching stage-flow row found for this user's assigned stage.");
-        }
+       
         setStageFlow(matched);
       } catch (err) {
         notification.error({

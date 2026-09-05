@@ -40,16 +40,6 @@ export async function ensureQzConnected() {
   connected = true;
 }
 
-/**
- * Sends raw ZPL to a printer by name (as configured in Windows / QZ Tray's
- * printer list — this should match printers.printer_name from your DB,
- * e.g. "Zebra Z30T").
- */
-/**
- * Sends raw ZPL to a printer by name (as configured in Windows / QZ Tray's
- * printer list — this should match printers.printer_name from your DB,
- * e.g. "Zebra Z30T").
- */
 export async function printRawZpl(printerName, zpl) {
   await ensureQzConnected();
 

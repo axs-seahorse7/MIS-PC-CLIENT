@@ -7,7 +7,6 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
-    console.log("AuthProvider: user state changed:", user); 
     
   const [initializing, setInitializing] = useState(true);            
 

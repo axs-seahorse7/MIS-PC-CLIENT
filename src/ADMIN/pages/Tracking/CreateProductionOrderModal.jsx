@@ -1,37 +1,17 @@
 import { useEffect, useState } from "react";
-import { Modal, Form, Select, Input, InputNumber, Radio, DatePicker, Alert, message } from "antd";
+import { Modal, Form, Select, InputNumber, Radio, DatePicker, Alert, message } from "antd";
 import dayjs from "dayjs";
 import api from "../../../services/API/api";
 
-// ------------------------------------------------------------------
-// Endpoints — adjust to match your actual routes / baseURL prefix.
-// Products are NOT fetched here anymore — they come in as a prop
-// from the parent (ProductionOrdersPage), sourced from /products/admin.
-// ------------------------------------------------------------------
 const CREATE_ENDPOINT = "/production-orders/create";
 const UPDATE_ENDPOINT = (id) => `/production-orders/${id}/update`;
-const LINES_ENDPOINT = "/production-lines/all"; // expects [{ id, name }]
+const LINES_ENDPOINT = "/production-lines/all";
 
 const SEQUENCE_MODE_OPTIONS = [
   { label: "Non Sequential", value: "NON_SEQUENTIAL" },
   { label: "Sequential", value: "SEQUENTIAL" },
 ];
 
-const DEFAULT_SERIAL_WIDTH = 5;
-const DEFAULT_SEQUENCE_MODE = "NON_SEQUENTIAL";
-
-/**
- * Create / edit modal for a Production Order.
- *
- * mode="create" → POST a brand new order.
- * mode="edit"   → PUT an existing PLANNED order. Editing regenerates
- *                 the order's serial items + stage rows on the backend,
- *                 so this is only offered for orders that haven't started.
- *
- * `products` is passed down from the parent so every consumer of this
- * modal reads from the same source (/products/admin) instead of each
- * component fetching its own possibly-inconsistent list.
- */
 const ProductionOrderFormModal = ({
   open,
   mode = "create",
@@ -42,30 +22,21 @@ const ProductionOrderFormModal = ({
 }) => {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
-
   const [lines, setLines] = useState([]);
   const [linesLoading, setLinesLoading] = useState(false);
 
-  // Live-computed target qty, kept in sync with serialStart/serialEnd so
-  // the value sent to the backend can never mismatch the serial range.
-  const [calculatedQty, setCalculatedQty] = useState(null);
-
   const isEdit = mode === "edit";
 
-  // Defensive dedupe — collapses duplicate product rows (same erp_no,
-  // possibly different ids) regardless of what upstream sends.
   const uniqueProducts = Array.from(
-    new Map(products.map((p) => [p.erp_no || p.id, p])).values()
+    new Map(products.map((p) => [p.id, p])).values()
   );
 
-  // ----------------------------------------------------------------
-  // Load production lines whenever the modal opens
-  // ----------------------------------------------------------------
   useEffect(() => {
     if (!open) return;
 
     const loadLines = async () => {
       setLinesLoading(true);
+
       try {
         const res = await api.get(LINES_ENDPOINT);
         setLines(res?.data?.data || res?.data || []);
@@ -79,9 +50,6 @@ const ProductionOrderFormModal = ({
     loadLines();
   }, [open]);
 
-  // ----------------------------------------------------------------
-  // Prefill form when editing, reset when creating
-  // ----------------------------------------------------------------
   useEffect(() => {
     if (!open) return;
 
@@ -89,84 +57,63 @@ const ProductionOrderFormModal = ({
       form.setFieldsValue({
         productId: record.product_id,
         lineId: record.line_id,
-        serialPrefix: record.serial_prefix,
-        serialStart: record.serial_start,
-        serialEnd: record.serial_end,
-        serialWidth: record.serial_width || DEFAULT_SERIAL_WIDTH,
-        sequenceMode: record.sequence_mode || DEFAULT_SEQUENCE_MODE,
-        plannedDate: record.planned_date ? dayjs(record.planned_date) : null,
+        targetQty: Number(record.target_qty || 0),
+        sequenceMode: record.sequence_mode || "NON_SEQUENTIAL",
+        plannedDate: record.planned_date
+          ? dayjs(record.planned_date)
+          : null,
       });
-      setCalculatedQty(
-        record.serial_start != null && record.serial_end != null
-          ? record.serial_end - record.serial_start + 1
-          : null
-      );
     } else {
       form.resetFields();
+
       form.setFieldsValue({
-        serialWidth: DEFAULT_SERIAL_WIDTH,
-        sequenceMode: DEFAULT_SEQUENCE_MODE,
+        sequenceMode: "NON_SEQUENTIAL",
+        plannedDate: dayjs(),
       });
-      setCalculatedQty(null);
     }
   }, [open, isEdit, record, form]);
 
-  // ----------------------------------------------------------------
-  // Keep target qty in sync with the serial range
-  // ----------------------------------------------------------------
-  const recomputeQty = () => {
-    const start = form.getFieldValue("serialStart");
-    const end = form.getFieldValue("serialEnd");
-
-    if (start === undefined || start === null || end === undefined || end === null) {
-      setCalculatedQty(null);
-      return;
-    }
-
-    setCalculatedQty(end >= start ? end - start + 1 : null);
-  };
-
-  // ----------------------------------------------------------------
-  // Submit
-  // ----------------------------------------------------------------
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
 
-      if (values.serialStart > values.serialEnd) {
-        message.error("Serial start cannot be greater than serial end");
-        return;
-      }
-
-      const targetQty = values.serialEnd - values.serialStart + 1;
-
       const payload = {
         productId: values.productId,
         lineId: values.lineId,
-        targetQty,
-        serialPrefix: values.serialPrefix.trim(),
-        serialStart: values.serialStart,
-        serialEnd: values.serialEnd,
-        serialWidth: values.serialWidth,
+        targetQty: Number(values.targetQty),
         sequenceMode: values.sequenceMode,
-        plannedDate: values.plannedDate ? values.plannedDate.format("YYYY-MM-DD") : undefined,
+        plannedDate: values.plannedDate
+          ? values.plannedDate.format("YYYY-MM-DD")
+          : undefined,
       };
 
       setSubmitting(true);
 
       if (isEdit) {
-        await api.put(UPDATE_ENDPOINT(record.id), payload);
+        await api.put(
+          UPDATE_ENDPOINT(record.id),
+          payload
+        );
+
         message.success("Production order updated");
       } else {
-        await api.post(CREATE_ENDPOINT, payload);
+        await api.post(
+          CREATE_ENDPOINT,
+          payload
+        );
+
         message.success("Production order created");
       }
 
       onSuccess?.();
-    } catch (err) {
-      if (err?.errorFields) return; // antd validation error, already shown inline
 
-      message.error(err?.response?.data?.message || `Failed to ${isEdit ? "update" : "create"} order`);
+    } catch (err) {
+      if (err?.errorFields) return;
+
+      message.error(
+        err?.response?.data?.message ||
+        `Failed to ${isEdit ? "update" : "create"} production order`
+      );
     } finally {
       setSubmitting(false);
     }
@@ -174,39 +121,53 @@ const ProductionOrderFormModal = ({
 
   return (
     <Modal
-      title={isEdit ? `Edit Production Order — ${record?.order_no || ""}` : "New Production Order"}
+      title={
+        isEdit
+          ? `Edit Production Order — ${record?.order_no || ""}`
+          : "New Production Order"
+      }
       open={open}
       onCancel={onCancel}
       onOk={handleSubmit}
       confirmLoading={submitting}
       okText={isEdit ? "Save Changes" : "Create Order"}
       destroyOnClose
-      width={640}
+      width={800}
     >
       {isEdit && (
         <Alert
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message="Editing regenerates this order's serial items and stage records."
+          message="Editing will reassign Product QR identities for this order."
         />
       )}
 
-      <Form form={form} layout="vertical" onValuesChange={recomputeQty}>
+      <Form
+        form={form}
+        layout="vertical"
+      >
         <div style={{ display: "flex", gap: 16 }}>
           <Form.Item
             label="Product"
             name="productId"
-            rules={[{ required: true, message: "Product is required" }]}
+            rules={[
+              {
+                required: true,
+                message: "Product is required",
+              },
+            ]}
             style={{ flex: 1 }}
           >
             <Select
               placeholder="Select product"
               showSearch
               optionFilterProp="label"
-              options={uniqueProducts.map((p) => ({
-                value: p.id,
-                label: p.erp_no ? `${p.name} (${p.erp_no})` : p.name,
+              options={uniqueProducts.map((product) => ({
+                value: product.id,
+                label: product.erp_no
+                  ? `${product.name} (${product.erp_no})`
+                  : product.name,
               }))}
             />
           </Form.Item>
@@ -214,85 +175,136 @@ const ProductionOrderFormModal = ({
           <Form.Item
             label="Production Line"
             name="lineId"
-            rules={[{ required: true, message: "Production line is required" }]}
+            rules={[
+              {
+                required: true,
+                message: "Production line is required",
+              },
+            ]}
             style={{ flex: 1 }}
           >
             <Select
-              placeholder="Select line"
+              placeholder="Select production line"
               loading={linesLoading}
               showSearch
               optionFilterProp="label"
-              options={lines.map((l) => ({ value: l.id, label: l.name }))}
+              options={lines.map((line) => ({
+                value: line.id,
+                label: line.code
+                  ? `${line.name} (${line.code})`
+                  : line.name,
+              }))}
             />
           </Form.Item>
         </div>
 
-        <div style={{ display: "flex", gap: 16 }}>
-          <Form.Item
-            label="Serial Prefix"
-            name="serialPrefix"
-            rules={[{ required: true, message: "Serial prefix is required" }]}
-            style={{ flex: 1 }}
-          >
-            <Input placeholder="e.g. PCB-A-" />
-          </Form.Item>
+        <Form.Item
+          label="Target Quantity"
+          name="targetQty"
+          rules={[
+            {
+              required: true,
+              message: "Target quantity is required",
+            },
+            {
+              validator: (_, value) => {
+                if (
+                  value === undefined ||
+                  value === null ||
+                  value === ""
+                ) {
+                  return Promise.resolve();
+                }
 
-          <Form.Item
-            label="Serial Width"
-            name="serialWidth"
-            rules={[{ required: true, message: "Serial width is required" }]}
-            style={{ width: 140 }}
-          >
-            <InputNumber min={1} max={12} style={{ width: "100%" }} />
-          </Form.Item>
-        </div>
+                if (
+                  !Number.isInteger(Number(value)) ||
+                  Number(value) < 1
+                ) {
+                  return Promise.reject(
+                    new Error(
+                      "Target quantity must be a positive whole number"
+                    )
+                  );
+                }
 
-        <div style={{ display: "flex", gap: 16 }}>
-          <Form.Item
-            label="Serial Start"
-            name="serialStart"
-            rules={[{ required: true, message: "Required" }]}
-            style={{ flex: 1 }}
-          >
-            <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
+                return Promise.resolve();
+              },
+            },
+          ]}
+        >
+          <InputNumber
+            min={1}
+            precision={0}
+            style={{ width: "100%" }}
+            placeholder="Enter production quantity"
+          />
+        </Form.Item>
 
-          <Form.Item
-            label="Serial End"
-            name="serialEnd"
-            rules={[{ required: true, message: "Required" }]}
-            style={{ flex: 1 }}
+        <div
+          style={{
+            marginBottom: 20,
+            padding: "14px 16px",
+            background: "#F8FAFC",
+            border: "1px solid #E2E8F0",
+            borderRadius: 10,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#64748B",
+              marginBottom: 4,
+            }}
           >
-            <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
+            Product QR Assignment
+          </div>
 
-          <Form.Item label="Target Qty" style={{ flex: 1 }}>
-            <InputNumber
-              value={calculatedQty}
-              disabled
-              style={{ width: "100%" }}
-              placeholder="Auto-calculated"
-            />
-          </Form.Item>
+          <div
+            style={{
+              fontSize: 13,
+              color: "#334155",
+              lineHeight: 1.5,
+            }}
+          >
+            Product QR identities are assigned automatically from the
+            generated Product QR pool when the order is created.
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: 16 }}>
           <Form.Item
             label="Sequence Mode"
             name="sequenceMode"
-            rules={[{ required: true }]}
+            rules={[
+              {
+                required: true,
+                message: "Sequence mode is required",
+              },
+            ]}
             style={{ flex: 1 }}
           >
-            <Radio.Group options={SEQUENCE_MODE_OPTIONS} optionType="button" buttonStyle="solid" />
+            <Radio.Group
+              options={SEQUENCE_MODE_OPTIONS}
+              optionType="button"
+              buttonStyle="solid"
+            />
           </Form.Item>
 
           <Form.Item
             label="Planned Date"
             name="plannedDate"
-            rules={[{ required: true, message: "Planned date is required" }]}
+            rules={[
+              {
+                required: true,
+                message: "Planned date is required",
+              },
+            ]}
             style={{ flex: 1 }}
           >
-            <DatePicker style={{ width: "100%" }} />
+            <DatePicker
+              style={{ width: "100%" }}
+            />
           </Form.Item>
         </div>
       </Form>

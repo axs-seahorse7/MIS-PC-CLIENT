@@ -1,6 +1,6 @@
-import React from "react";
+import {useState} from "react";
 import { Card, Select, Input, Typography } from "antd";
-import { ScanOutlined } from "@ant-design/icons";
+import { ScanOutlined, QrcodeOutlined  } from "@ant-design/icons";
 import { SCAN_MODES } from "../constants/scanModes";
 import GroupCreatePanel from "./GroupCreatePanel";
 import CustomerBindingPanel from "./CustomerBindingPanel";
@@ -37,6 +37,9 @@ export default function ScanPanel({
   onCancelCustomerBinding,
 }) {
   const scanMode = stageFlow?.scan_mode;
+  const [wipFocused, setWipFocused] = useState(false);
+const wipReady = !!form.productId && mode === "view" && !form.wipBarCode;
+
 
   return (
     <Card
@@ -64,17 +67,44 @@ export default function ScanPanel({
       </div>
 
       <div>
-        <FieldLabel text="WIP Bar Code" />
-        <Input
-          disabled={!form.productId || mode !== "view"}
-          ref={wipCodeRef}
-          placeholder={!form.productId ? "Select a product first" : "Scan QR / enter code"}
-          value={form.wipBarCode}
-          onChange={onWipCodeChange}
-          onPressEnter={onWipCodeScanned}
-          suffix={<ScanOutlined style={{ color: "#3a6d95" }} />}
-        />
-      </div>
+      <FieldLabel text="WIP Bar Code"  />
+
+      {/* keyframes for the "armed, waiting for scan" pulse */}
+      <style>{`
+        @keyframes wip-scan-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(58, 109, 149, 0.35); }
+          50% { box-shadow: 0 0 0 6px rgba(58, 109, 149, 0); }
+        }
+      `}</style>
+
+      <Input
+        disabled={!form.productId || mode !== "view"}
+        ref={wipCodeRef}
+        placeholder={!form.productId ? " Select a product first" : " Scan QR "}
+        value={form.wipBarCode}
+        onChange={onWipCodeChange}
+        onPressEnter={onWipCodeScanned}
+        onFocus={() => setWipFocused(true)}
+        onBlur={() => setWipFocused(false)}
+        prefix={<QrcodeOutlined style={{ color: "#3a6d95", fontSize: 18 }} />}
+        suffix={<ScanOutlined style={{ color: "#3a6d95" }} />}
+        size="large"
+        style={{
+          fontFamily: "'Consolas', 'SFMono-Regular', 'Courier New', monospace",
+          fontSize: 17,
+          fontWeight: 600,
+          letterSpacing: 1.5,
+          textAlign: "center",
+          color: "#1d3557",
+          background: form.wipBarCode ? "#eef6fb" : "#fafcff",
+          border: `1.5px ${wipFocused ? "solid" : "dashed"} #3a6d95`,
+          borderRadius: 8,
+          boxShadow: wipFocused ? "0 0 0 3px rgba(58, 109, 149, 0.18)" : "none",
+          animation: wipReady && !wipFocused ? "wip-scan-pulse 1.8s ease-out infinite" : "none",
+          transition: "border-style .15s, box-shadow .15s, background .15s",
+        }}
+      />
+    </div>
 
       <div>
         <Text

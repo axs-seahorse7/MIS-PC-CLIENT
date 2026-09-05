@@ -320,7 +320,6 @@ export default function useScanSubmission({
       const response = res?.data;
       const scanData = response?.data;
 
-      console.log("Scan submission response:", response);
       setErrorMessage(null);
       setSuccessMessage(`${code} has been successfully recorded.`);
       setTimeout(() => setSuccessMessage(null), 10000);
@@ -337,7 +336,6 @@ export default function useScanSubmission({
       fetchLatestScans();
       return response;
     } catch (err) {
-      console.error("Error submitting scan:", err);
       return (
         err?.response?.data || {
           success: false,

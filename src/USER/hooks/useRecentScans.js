@@ -24,9 +24,7 @@ export default function useRecentScans({ user, productId }) {
       );
       const rows = res?.data?.data ?? [];
       setRecentScans(Array.isArray(rows) ? rows : []);
-      console.log("Fetched latest scans:", rows);
     } catch (err) {
-      console.error("Error fetching latest scans:", err);
       setRecentScans([]);
       notification.error({
         message: "Failed to load latest scans",

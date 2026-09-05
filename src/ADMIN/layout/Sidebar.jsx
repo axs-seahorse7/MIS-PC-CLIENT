@@ -148,6 +148,7 @@ const Sidebar = ({ collapsed }) => {
           font-weight: 500;
           color: #64748B;
           padding-inline: 12px !important;
+          transition: background .15s ease, color .15s ease;
         }
         .simse-sidebar-menu .ant-menu-item:hover,
         .simse-sidebar-menu .ant-menu-submenu-title:hover {
@@ -155,8 +156,9 @@ const Sidebar = ({ collapsed }) => {
           color: #0F172A !important;
         }
         .simse-sidebar-menu .ant-menu-item-selected {
-          background: #111827 !important;
+          background: linear-gradient(90deg, #5b5ce2 0%, #3b82f6 50%, #0ea5e9 100%) !important;
           color: #fff !important;
+          box-shadow: 0 2px 8px rgba(59,130,246,0.25);
         }
         .simse-sidebar-menu .ant-menu-item-selected svg {
           color: #fff !important;
@@ -165,7 +167,6 @@ const Sidebar = ({ collapsed }) => {
           background: #F8FAFC !important;
           color: #111827 !important;
           font-weight: 600;
-        }
         }
         .simse-sidebar-menu .ant-menu-sub.ant-menu-inline {
           background: transparent !important;
@@ -182,10 +183,10 @@ const Sidebar = ({ collapsed }) => {
           color: #0F172A !important;
         }
         .simse-sidebar-menu .ant-menu-sub .ant-menu-item-selected {
-            background:#EFF6FF !important;
-            color:#2563EB !important;
-            border-left:3px solid #2563EB;
-            font-weight:600;
+            background: linear-gradient(90deg, rgba(91,92,226,0.1) 0%, rgba(14,165,233,0.1) 100%) !important;
+            color: #3b5ce2 !important;
+            border-left: 3px solid #3b82f6;
+            font-weight: 600;
         }
         .simse-logout {
           display: flex;
