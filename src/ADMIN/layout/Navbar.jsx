@@ -64,22 +64,27 @@ const Navbar = ({ collapsed, toggleSidebar }) => {
     >
       {/* ...styles unchanged... */}
 
-      {/* Left Side unchanged */}
+      {/* Left Side */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div className="simse-icon-btn" onClick={toggleSidebar}>
+          {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+        </div>
+
+        <div className="flex items-center border h-6 px-4 rounded-full border-gray-200 text-gray-400 text-[10] ">
+          {/* <Breadcrumb
+            separator={<ChevronRight size={12} color="#CBD5E1" />}
+            items={[
+              { title: <span style={{ color: "#94A3B8", fontSize: 12 }}>Admin</span> },
+              { title: <span className="simse-crumb-current" style={{ fontSize: 13 }}>{currentPage}</span> },
+            ]}
+          /> */}
+          <span className="text-[11px]" >Admin </span> <span className="px-2" >{">"}</span> <span className="text-[11px]">{currentPage}</span>
+        </div>
+      </div>
+
 
       {/* Right Side */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, width: "100%", justifyContent: "flex-end" }}>
-        <Input
-          className="simse-search"
-          placeholder="Search..."
-          prefix={<Search size={15} color="#94A3B8" style={{ marginRight: 2 }} />}
-          suffix={<kbd>⌘K</kbd>}
-          style={{ width: 240, fontSize: 13 }}
-        />
-
-        <div className="simse-icon-btn">
-          <Bell size={17} />
-          <span className="simse-notif-dot" />
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 16,  justifyContent: "flex-end" }}>
 
         <div style={{ width: 1, height: 28, background: "#F1F5F9" }} />
 

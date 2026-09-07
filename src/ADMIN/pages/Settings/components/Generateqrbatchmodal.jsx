@@ -89,13 +89,14 @@ export default function GenerateQrBatchModal({ open, rule, onClose, onGenerated 
   // and for the printed labels themselves — customer_serial uses the
   // actual first serial that will be generated.
   const previewSampleData = preview
-    ? {
-        customer_serial: buildQr(preview.available_from),
-        product_name: preview.product_name,
-        part_code: preview.part_code, // customer prefix, not product_part_code
-        erp_no: preview.product_erp_no,
-      }
-    : null;
+  ? {
+      customer_serial: buildQr(preview.available_from),
+      product_name: preview.product_name,
+      part_code: preview.part_code, // customer prefix
+      product_part_code: preview.product_part_code, // product's own part code
+      erp_no: preview.product_erp_no,
+    }
+  : null;
 
 const handleGenerateAndPrint = async () => {
   if (!preview || !rule) return;

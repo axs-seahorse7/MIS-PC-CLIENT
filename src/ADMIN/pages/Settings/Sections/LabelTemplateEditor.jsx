@@ -72,7 +72,8 @@ const FIELD_OPTIONS = {
   CUSTOMER_QR: [
     { label: "Customer Serial", value: "customer_serial" },
     { label: "Product Name", value: "product_name" },
-    { label: "Part Code", value: "part_code" },
+    { label: "Part Code (Customer)", value: "part_code" },
+    { label: "Part Code (Product)", value: "product_part_code" },
     { label: "ERP No", value: "erp_no" },
   ],
 };
@@ -86,6 +87,7 @@ const DEFAULT_SAMPLE_DATA = {
   customer_serial: "XXXXX00064",
   product_name: "IDU 12K",
   part_code: "PARTXXXXX01",
+  product_part_code: "PRODPARTXX01",
   erp_no: "678912345",
   quantity: "10",
   packed_at: "02/09/2026 09:30",
@@ -338,8 +340,7 @@ export default function LabelTemplateEditor({templateId = null, onSaved}) {
             type: "text",
             source: "manual",
             field:
-            fields.find(
-                (item) => item.value === "product_name"
+            fields.find((item) => item.value === "product_name"
             )?.value || fields[0]?.value,
             text: "Edit Text",
             dateFormat: "DD/MM/YY",
