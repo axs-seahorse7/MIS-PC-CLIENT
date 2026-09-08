@@ -387,7 +387,7 @@ export default function useScanSubmission({
   // WIP Bar Code field — dispatches by scan_mode
   // ------------------------------------------------------------------
   const handleWipCodeScanned = async () => {
-    const code = form.wipBarCode.trim();
+    const code = form.wipBarCode.trim()?.toUpperCase();
     if (!code) return;
 
     clearMissingHighlight();
@@ -395,7 +395,8 @@ export default function useScanSubmission({
     if (mode !== "view") {
       const msg = "Cannot scan while in New/Edit mode. Save your changes first.";
       setErrorMessage(msg);
-      showErrorPopup({ type: "ERROR", title: "Scan Blocked", message: msg });
+      setForm((f) => ({ ...f, wipBarCode: "" }));   // ← add this
+      showErrorPopup({ type: "ERROR", title: "Save the Layout first.", message: msg });
       setTimeout(() => wipCodeRef.current?.focus(), 0);
       return;
     }
@@ -403,14 +404,17 @@ export default function useScanSubmission({
     if (!form.productId) {
       const msg = "Select an ERP number before scanning.";
       setErrorMessage(msg);
-      showErrorPopup({ type: "ERROR", title: "Scan Blocked", message: msg });
+      setForm((f) => ({ ...f, wipBarCode: "" }));   // ← add this
+      showErrorPopup({ type: "ERROR", title: "Select ERP/SAP No First", message: msg });
       setTimeout(() => wipCodeRef.current?.focus(), 0);
       return;
     }
+
     if (!stageFlow) {
-      const msg = "Stage flow not loaded for this product yet.";
+      const msg = "Wrong Station or Maybe Stations Are Not Configured for this Product";
       setErrorMessage(msg);
-      showErrorPopup({ type: "ERROR", title: "Scan Blocked", message: msg });
+      setForm((f) => ({ ...f, wipBarCode: "" }));   // ← add this
+      showErrorPopup({ type: "ERROR", title: "Wrong Serial Scanned", message: msg });
       setTimeout(() => wipCodeRef.current?.focus(), 0);
       return;
     }
@@ -426,6 +430,7 @@ export default function useScanSubmission({
           showErrorPopup({ type: "DUPLICATE", title: "Already Scanned", message: dupeMsg });
           return prev;
         }
+        
         const next = [...prev, { code, tempId: `${code}-${Date.now()}` }];
         setErrorMessage(`Scan added (${next.length} pending). Save group when ready.`);
         return next;
@@ -434,6 +439,8 @@ export default function useScanSubmission({
       if (!wasDuplicate) {
         setForm((f) => ({ ...f, wipBarCode: "" }));
       }
+
+      setForm((f) => ({ ...f, wipBarCode: "" }));   // ← add this
       setTimeout(() => wipCodeRef.current?.focus(), 50);
       return;
     }
@@ -475,6 +482,7 @@ export default function useScanSubmission({
     // ---- SINGLE / GROUP_SCAN: save directly ----
     const result = await submitScanToServer(code);
     const resultIndex = result?.data?.sequence_no ? result.data.sequence_no - 1 : assignedStageIndex;
+    setForm((f) => ({ ...f, wipBarCode: "" }));   // ← add this
 
     if (result.success) {
       setForm((f) => ({ ...f, wipBarCode: "" }));

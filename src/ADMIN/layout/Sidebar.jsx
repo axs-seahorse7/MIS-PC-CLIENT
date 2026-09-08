@@ -100,8 +100,7 @@ const Sidebar = ({ collapsed }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const parentKeyForPath = () =>
-    menuConfig.find(
+  const parentKeyForPath = () => menuConfig.find(
       (item) => item.children && location.pathname.startsWith(item.key)
     )?.key;
 
@@ -241,11 +240,11 @@ const Sidebar = ({ collapsed }) => {
           style={{ width: 60, height: 60, borderRadius: 7, objectFit: "contain" }}
         />
         {!collapsed && (
-          <div style={{ marginLeft: 10, display: "flex", flexDirection: "column" }}>
-            <span style={{ color: "#0F172A", fontSize: 14, fontWeight: 700, letterSpacing: .2 }}>
-              SIMSE
+          <div style={{ marginLeft: 10, display: "flex", flexDirection: "column", borderLeft:"1px solid red", paddingLeft: 10 }}>
+            <span style={{ color: "#0F172A", fontSize: 18, fontWeight: 700, letterSpacing: .2 }}>
+              SMSE
             </span>
-            <span style={{ color: "#94A3B8", fontSize: 10 }}>Tracking System</span>
+            <span style={{ color: "#94A3B8", fontSize: 10 }}>Smart Manufacturing Execution System</span>
           </div>
         )}
       </div>

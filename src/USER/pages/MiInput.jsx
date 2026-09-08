@@ -19,11 +19,7 @@ import useRecentScans from "../hooks/useRecentScans";
 import useScanSubmission from "../hooks/useScanSubmission";
 import useKeepWipFocus from "../hooks/useKeepWipFocus";
 
-// Data flows one direction only, so there's no circular hook wiring:
-//   useProductionForm (form/mode/selected/stageStats)
-//     -> useStageFlow (needs productId)
-//     -> useRecentScans (needs productId)
-//     -> useScanSubmission (needs form + stageFlow + fetchLatestScans)
+
 export default function MIInput() {
   const { user } = useAuth();
   const { products, productsLoading } = useProducts();
