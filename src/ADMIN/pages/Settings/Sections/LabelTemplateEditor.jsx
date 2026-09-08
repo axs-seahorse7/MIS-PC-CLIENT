@@ -1173,7 +1173,13 @@ const addBox = () => {
               {/* CANVAS */}
               {/* ================================================= */}
 
-              <div style={{ flex: 1, minWidth: 0 }}>
+              <div 
+                style={{ 
+                  flex: 1, 
+                  minWidth: 0 ,
+                  
+                }}
+              >
                 <Text>
                   W: {template.width}, H: {template.height}
                 </Text>
@@ -1342,6 +1348,8 @@ const addBox = () => {
                                   padding: 0,
                                   margin: 0,
                                   userSelect: "none",
+                                  transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
+                                  transformOrigin: "top left",
                                 }}
                               >
                                 {value}
@@ -1632,7 +1640,10 @@ const addBox = () => {
 
                           {/* Text / QR */}
                           {(selectedElement.type === "text" || selectedElement.type === "qr") && (
-                            <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                            <Space direction="vertical" 
+                            style={{ width: "100%" }} 
+                            size={8}
+                            >
                               <Text style={{ color: "#64748b", fontSize: 12 }}>X</Text>
                               <InputNumber
                                 style={{ width: "100%" }}
@@ -1656,6 +1667,19 @@ const addBox = () => {
                                   })
                                 }
                               />
+
+                              <Text style={{ color: "#64748b", fontSize: 12 }}>Orientation</Text>
+                                <Select
+                                  style={{ width: "100%" }}
+                                  value={selectedElement.rotation || 0}
+                                  options={[
+                                    { label: "Horizontal (0°)", value: 0 },
+                                    { label: "Vertical ↑ (90°)", value: 90 },
+                                    { label: "Upside Down (180°)", value: 180 },
+                                    { label: "Vertical ↓ (270°)", value: 270 },
+                                  ]}
+                                  onChange={(value) => updateElement(selectedElement.id, { rotation: value })}
+                                />
 
                               {selectedElement.type === "text" && (
                                 <>
