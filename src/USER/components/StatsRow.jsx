@@ -116,7 +116,7 @@ export default function StatsRow({ stageStats }) {
         chartPercent={stageStats.achievementPercent}
       />
       <StatCard
-        title="REMAINS %"
+        title="REMAINS "
         value={`${stageStats.remainsQty}`}
         color="#d1483c"
         chartPercent={

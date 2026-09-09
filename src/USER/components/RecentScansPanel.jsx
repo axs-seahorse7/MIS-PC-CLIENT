@@ -1,5 +1,6 @@
 import React from "react";
 import { Card, Typography } from "antd";
+import {DoubleRightOutlined} from "@ant-design/icons"
 import formatScanTime from "../../helpers/formatScanTime.js"; // adjust path if your folder depth differs
 
 const { Text } = Typography;
@@ -31,6 +32,7 @@ export default function RecentScansPanel({ recentScans }) {
             No scans recorded yet.
           </Text>
         )}
+
         {recentScans?.map((s) => (
           <div
             key={s.id}
@@ -45,12 +47,22 @@ export default function RecentScansPanel({ recentScans }) {
               animation: "recentScanIn 0.2s ease-out",
             }}
           >
-            <Text style={{ fontSize: 12.5, fontWeight: 600, color: "#1b2430" }}>{s?.scanned_value ?? ""}</Text>
-            <Text type="secondary" style={{ fontSize: 11 }}>
+            <div style={{ display: "flex", flexDirection: "row", gap: 10, minWidth: 0 }}>
+              <Text style={{ fontSize: 12.5, fontWeight: 600, color: "#1b2430" }}>
+                {s?.scanned_value ?? ""}
+              </Text>
+              {s?.customer_qr && (
+                <Text style={{ fontSize: 11, color: "#032aa9" }}>
+                 <DoubleRightOutlined />  {s.customer_qr}
+                </Text>
+              )}
+            </div>
+            <Text type="secondary" style={{ fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
               {s?.scanned_at ? formatScanTime(s.scanned_at) : ""}
             </Text>
           </div>
         ))}
+
       </div>
     </Card>
   );
