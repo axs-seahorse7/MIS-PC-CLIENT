@@ -236,13 +236,13 @@ const Sidebar = ({ collapsed }) => {
       >
         <img
           src={Logo}
-          alt="SIMSE Logo"
+          alt="PG Technoplast pvt ltd"
           style={{ width: 60, height: 60, borderRadius: 7, objectFit: "contain" }}
         />
         {!collapsed && (
           <div style={{ marginLeft: 10, display: "flex", flexDirection: "column", borderLeft:"1px solid red", paddingLeft: 10 }}>
             <span style={{ color: "#0F172A", fontSize: 18, fontWeight: 700, letterSpacing: .2 }}>
-              SMSE
+              SMES
             </span>
             <span style={{ color: "#94A3B8", fontSize: 10 }}>Smart Manufacturing Execution System</span>
           </div>
