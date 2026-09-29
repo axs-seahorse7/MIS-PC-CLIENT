@@ -30,6 +30,8 @@ const EXTERNAL_SOURCE_TYPE_OPTIONS = [
   { value: "API", label: "External API (Coming Soon)" },
 ];
 
+// Machine type is decided by the stage (set in Stage configuration) — this list
+// is only used to render the read-only value. Keep in sync with ManageStages.
 const EXTERNAL_MACHINE_TYPE_OPTIONS = [
   { value: "ICT", label: "ICT" },
   { value: "FCT", label: "FCT" },
@@ -74,8 +76,9 @@ const parseApiConfig = (raw) => {
 // Server sends/expects { product_id, stage_id, sequence_no, scan_mode,
 // is_external_dependency, external_source, external_source_type,
 // external_machine_type, external_folder_path,
-// external_poll_interval_minutes, external_api_config, machine_code }.
-// machine_code is server-generated on save and is never sent by the client.
+// external_poll_interval_minutes, external_api_config }.
+// machine_code belongs to the STAGE (created in Stage configuration) and is
+// returned read-only on every flow row — the client never sends it.
 // productOptions / stageOptions (fetched live) resolve id -> name for display.
 const normalizeFlow = (item, productOptions = [], stageOptions = []) => {
   const apiConfig = parseApiConfig(item.external_api_config);
@@ -83,9 +86,9 @@ const normalizeFlow = (item, productOptions = [], stageOptions = []) => {
     id: item._id || item.id,
     productId: item.product_id,
     productName:
-      item.productName || productOptions.find((p) => p.value === item.product_id)?.label || "-",
+      item.productName || item.product_name || productOptions.find((p) => p.value === item.product_id)?.label || "-",
     stageId: item.stage_id,
-    stageName: item.stageName || stageOptions.find((s) => s.value === item.stage_id)?.label || "-",
+    stageName: item.stageName || item.stage_name || stageOptions.find((s) => s.value === item.stage_id)?.label || "-",
     sequenceNo: item.sequence_no,
     scanMode: item.scan_mode || "SINGLE",
     isExternalDependency: !!item.is_external_dependency,
@@ -110,6 +113,7 @@ const ProductStage = () => {
   const [loading, setLoading] = useState(true);
 
   const [productOptions, setProductOptions] = useState([]);
+  // { value, label, machineCode, machineType } — machineCode/Type come from the stage
   const [stageOptions, setStageOptions] = useState([]);
   const [optionsLoading, setOptionsLoading] = useState(true);
 
@@ -121,6 +125,12 @@ const ProductStage = () => {
   const [form] = Form.useForm();
   const isExternalDependency = Form.useWatch("isExternalDependency", form);
   const externalSourceType = Form.useWatch("externalSourceType", form);
+  const selectedStageId = Form.useWatch("stageId", form);
+
+  const selectedStage = useMemo(
+    () => stageOptions.find((s) => s.value === selectedStageId) || null,
+    [stageOptions, selectedStageId]
+  );
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -151,6 +161,8 @@ const ProductStage = () => {
       const stageList = (stagesRes.data?.data || stagesRes.data || []).map((s) => ({
         value: s._id || s.id,
         label: s.name,
+        machineCode: s.machine_code || null,
+        machineType: s.machine_type || null,
       }));
       setProductOptions(productList);
       setStageOptions(stageList);
@@ -215,6 +227,24 @@ const ProductStage = () => {
     setFormOpen(true);
   };
 
+  // Picking a stage that has a machine code (set up in Stage configuration)
+  // turns External Dependency on and takes the machine type from the stage.
+  // A stage without a machine code can't be an external dependency.
+  const handleStageChange = (stageId) => {
+    const stage = stageOptions.find((s) => s.value === stageId);
+    if (stage?.machineCode) {
+      form.setFieldsValue({
+        isExternalDependency: true,
+        externalMachineType: stage.machineType || undefined,
+      });
+    } else {
+      form.setFieldsValue({
+        isExternalDependency: false,
+        externalMachineType: undefined,
+      });
+    }
+  };
+
   const handleSubmit = async () => {
     let values;
     try {
@@ -248,7 +278,7 @@ const ProductStage = () => {
             resultField: values.apiResultField || null,
           })
         : null,
-      // machine_code is intentionally NOT sent — the server generates it on save.
+      // machine_code is intentionally NOT sent — it belongs to the stage.
     };
 
     try {
@@ -435,6 +465,18 @@ const handleReorder = async (productId, orderedIds) => {
                 label="Stage"
                 rules={[{ required: true, message: "Please select a stage" }]}
                 style={{ marginBottom: 16 }}
+                extra={
+                  selectedStage ? (
+                    selectedStage.machineCode ? (
+                      <span>
+                        Machine Code: <Tag color="blue" style={{ marginInlineEnd: 4 }}>{selectedStage.machineCode}</Tag>
+                        shared by every product that uses this stage
+                      </span>
+                    ) : (
+                      "This stage is not an external machine. Enable it in Stage configuration to use External Dependency."
+                    )
+                  ) : null
+                }
               >
                 <Select
                   placeholder="Select stage"
@@ -442,6 +484,7 @@ const handleReorder = async (productId, orderedIds) => {
                   loading={optionsLoading}
                   showSearch
                   optionFilterProp="label"
+                  onChange={handleStageChange}
                 />
               </Form.Item>
             </Col>
@@ -471,7 +514,12 @@ const handleReorder = async (productId, orderedIds) => {
                 initialValue={false}
                 style={{ marginBottom: isExternalDependency ? 16 : 0 }}
               >
-                <Switch checkedChildren="Yes" unCheckedChildren="No" />
+                {/* Only stages that were set up as an external machine can be external dependencies */}
+                <Switch
+                  checkedChildren="Yes"
+                  unCheckedChildren="No"
+                  disabled={!selectedStage?.machineCode}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -492,13 +540,18 @@ const handleReorder = async (productId, orderedIds) => {
             <>
               <Row gutter={16}>
                 <Col span={12}>
+                  {/* Read-only: comes from the stage's machine code */}
                   <Form.Item
                     name="externalMachineType"
                     label="External Machine Type"
-                    rules={[{ required: true, message: "Please select a machine type" }]}
+                    rules={[{ required: true, message: "Machine type comes from the stage" }]}
                     style={{ marginBottom: 16 }}
                   >
-                    <Select placeholder="Select machine type" options={EXTERNAL_MACHINE_TYPE_OPTIONS} />
+                    <Select
+                      placeholder="Set by the selected stage"
+                      options={EXTERNAL_MACHINE_TYPE_OPTIONS}
+                      disabled
+                    />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -623,7 +676,7 @@ const handleReorder = async (productId, orderedIds) => {
               {machineDetailsTarget.machineCode ? (
                 <Tag color="blue">{machineDetailsTarget.machineCode}</Tag>
               ) : (
-                <span style={{ color: "#94A3B8" }}>Not yet assigned</span>
+                <span style={{ color: "#94A3B8" }}>Not assigned — set this stage up as an external machine in Stage configuration</span>
               )}
             </Descriptions.Item>
             <Descriptions.Item label="Source Type" span={2}>

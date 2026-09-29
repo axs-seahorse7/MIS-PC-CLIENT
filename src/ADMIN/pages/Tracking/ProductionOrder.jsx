@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Input, Select, Drawer, Descriptions, Modal, message, Spin } from "antd";
+import { Input, Select, Drawer, Descriptions, Modal, message, Spin, Pagination } from "antd";
 import { Search, Eye, Pencil, Trash2 } from "lucide-react";
 import dayjs from "dayjs";
 import api from "../../../services/API/api";
@@ -20,6 +20,7 @@ const LIST_PRODUCTS_ENDPOINT = "/products/all-active-product";
 
 const DETAIL_ENDPOINT = (id) => `/production-orders/${id}`;
 const DELETE_ENDPOINT = (id) => `/production-orders/${id}`;
+const ITEMS_ENDPOINT = (id) => `/production-orders/${id}/items`;
 const TRANSITION_ENDPOINT = (id, action) => `/production-orders/${id}/${action}`;
 
 const STATUS_FILTER_OPTIONS = [
@@ -39,7 +40,10 @@ const STATUS_STYLES = {
   PAUSED: { bg: "#FFFBEB", text: "#D97706", dot: "#F59E0B" },
   COMPLETED: { bg: "#F0FDFA", text: "#0D9488", dot: "#14B8A6" },
   CANCELLED: { bg: "#FEF2F2", text: "#DC2626", dot: "#EF4444" },
+    REJECTED: { bg: "#FEF2F2", text: "#DC2626", dot: "#EF4444" },
 };
+
+
 
 const StatusPill = ({ status }) => {
   const style = STATUS_STYLES[status] || STATUS_STYLES.PLANNED;
@@ -139,8 +143,23 @@ const ProductionOrdersPage = () => {
   const [viewDrawerOpen, setViewDrawerOpen] = useState(false);
   const [viewOrder, setViewOrder] = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
+  const [viewItems, setViewItems] = useState([]);
 
   const [products, setProducts] = useState([]);
+  const ITEMS_PAGE_SIZE = 50;
+
+  const [viewOrderId, setViewOrderId] = useState(null);
+  const [itemsData, setItemsData] = useState({
+    items: [],
+    total: 0,
+    summary: {},
+    first_serial: null,
+    last_serial: null,
+  });
+  const [itemsPage, setItemsPage] = useState(1);
+  const [itemsStatus, setItemsStatus] = useState("ALL");
+  const [itemsSearch, setItemsSearch] = useState("");
+  const [itemsLoading, setItemsLoading] = useState(false);
 
   // ----------------------------------------------------------------
   // Fetch ALL active products for Production Order configuration.
@@ -262,14 +281,43 @@ const ProductionOrdersPage = () => {
   // ----------------------------------------------------------------
   // View
   // ----------------------------------------------------------------
+   const loadItems = async (orderId, page = 1, status = "ALL", search = "") => {
+    setItemsLoading(true);
+
+    try {
+      const res = await api.get(ITEMS_ENDPOINT(orderId), {
+        params: {
+          page,
+          pageSize: ITEMS_PAGE_SIZE,
+          status: status !== "ALL" ? status : undefined,
+          search: search.trim() || undefined,
+        },
+      });
+
+      setItemsData(
+        res?.data?.data || { items: [], total: 0, summary: {}, first_serial: null, last_serial: null }
+      );
+      setItemsPage(page);
+    } catch (err) {
+      message.error("Failed to load serials");
+    } finally {
+      setItemsLoading(false);
+    }
+  };
+
   const handleView = async (record) => {
     setViewDrawerOpen(true);
     setViewLoading(true);
+    setViewOrderId(record.id);
+    setItemsStatus("ALL");
+    setItemsSearch("");
+    setItemsData({ items: [], total: 0, summary: {}, first_serial: null, last_serial: null });
 
     try {
       const res = await api.get(DETAIL_ENDPOINT(record.id));
 
       setViewOrder(res?.data?.data || res?.data || null);
+      loadItems(record.id, 1, "ALL", "");
     } catch (err) {
       message.error("Failed to load order details");
     } finally {
@@ -280,6 +328,7 @@ const ProductionOrdersPage = () => {
   const closeViewDrawer = () => {
     setViewDrawerOpen(false);
     setViewOrder(null);
+    setViewOrderId(null);
   };
 
   // ----------------------------------------------------------------
@@ -773,10 +822,14 @@ const ProductionOrdersPage = () => {
                   {viewOrder.target_qty}
                 </Descriptions.Item>
 
-                <Descriptions.Item label="Product QR Range">
-                  {viewOrder.serial_start || "—"}
-                  {" → "}
-                  {viewOrder.serial_end || "—"}
+                <Descriptions.Item label="Product QR">
+                  <span style={{ wordBreak: "break-all", fontSize: 12 }}>
+                    {!itemsData.first_serial
+                      ? "—"
+                      : itemsData.first_serial === itemsData.last_serial
+                        ? itemsData.first_serial
+                        : `${itemsData.first_serial} → ${itemsData.last_serial}`}
+                  </span>
                 </Descriptions.Item>
 
                 <Descriptions.Item label="Sequence Mode">
@@ -800,7 +853,146 @@ const ProductionOrdersPage = () => {
                 <Descriptions.Item label="QR Identities Assigned">
                   {viewOrder.item_count ?? "—"}
                 </Descriptions.Item>
+
               </Descriptions>
+
+              <div
+                style={{
+                  marginTop: 22,
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: "#0F172A",
+                }}
+              >
+                Serials to Scan
+              </div>
+
+              <div style={{ marginTop: 6, fontSize: 12, color: "#64748B" }}>
+                {itemsData.summary.PENDING ?? 0} pending
+                {" · "}
+                {itemsData.summary.IN_PROGRESS ?? 0} in progress
+                {" · "}
+                {itemsData.summary.COMPLETED ?? 0} completed
+                {(itemsData.summary.REJECTED ?? 0) > 0 &&
+                  ` · ${itemsData.summary.REJECTED} rejected`}
+              </div>
+
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <Select
+                  value={itemsStatus}
+                  onChange={(value) => {
+                    setItemsStatus(value);
+                    loadItems(viewOrderId, 1, value, itemsSearch);
+                  }}
+                  style={{ width: 140 }}
+                  options={[
+                    { value: "ALL", label: "All" },
+                    { value: "PENDING", label: "Pending" },
+                    { value: "IN_PROGRESS", label: "In progress" },
+                    { value: "COMPLETED", label: "Completed" },
+                    { value: "REJECTED", label: "Rejected" },
+                  ]}
+                />
+
+                <Input.Search
+                  placeholder="Search serial..."
+                  allowClear
+                  onSearch={(value) => {
+                    setItemsSearch(value);
+                    loadItems(viewOrderId, 1, itemsStatus, value);
+                  }}
+                />
+              </div>
+
+              <Spin spinning={itemsLoading}>
+                <div
+                  style={{
+                    marginTop: 8,
+                    border: "1px solid #F1F5F9",
+                    borderRadius: 8,
+                    minHeight: 60,
+                  }}
+                >
+                  {itemsData.items.length === 0 ? (
+                    <div style={{ padding: 12, fontSize: 13, color: "#94A3B8" }}>
+                      No serials found
+                    </div>
+                  ) : (
+                    itemsData.items.map((item) => (
+                      <div
+                        key={item.serial_no}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "7px 12px",
+                          borderBottom: "1px solid #F1F5F9",
+                          fontSize: 12.5,
+                          color: "#334155",
+                        }}
+                      >
+                        <span style={{ wordBreak: "break-all" }}>
+                          {item.sequence_no}. {item.serial_no}
+                        </span>
+
+                        <StatusPill status={item.status} />
+                      </div>
+                    ))
+                  )}
+                </div>
+              </Spin>
+
+              <Pagination
+                size="small"
+                current={itemsPage}
+                pageSize={ITEMS_PAGE_SIZE}
+                total={itemsData.total}
+                showSizeChanger={false}
+                hideOnSinglePage
+                style={{ marginTop: 10, textAlign: "right" }}
+                onChange={(page) =>
+                  loadItems(viewOrderId, page, itemsStatus, itemsSearch)
+                }
+              />
+
+              <div
+                style={{
+                  marginTop: 8,
+                  maxHeight: 280,
+                  overflowY: "auto",
+                  border: "1px solid #F1F5F9",
+                  borderRadius: 8,
+                }}
+              >
+                {viewItems.length === 0 ? (
+                  <div style={{ padding: 12, fontSize: 13, color: "#94A3B8" }}>
+                    No serials assigned
+                  </div>
+                ) : (
+                  viewItems.map((item) => (
+                    <div
+                      key={item.serial_no}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "7px 12px",
+                        borderBottom: "1px solid #F1F5F9",
+                        fontSize: 12.5,
+                        color: "#334155",
+                      }}
+                    >
+                      <span style={{ wordBreak: "break-all" }}>
+                        {item.sequence_no}. {item.serial_no}
+                      </span>
+
+                      <StatusPill status={item.status} />
+                    </div>
+                  ))
+                )}
+              </div>
 
               <div
                 style={{

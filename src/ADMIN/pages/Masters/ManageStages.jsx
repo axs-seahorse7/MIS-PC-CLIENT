@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Form, Input, Select, Switch, Row, Col, message, Button } from "antd";
+import { Form, Input, Select, Switch, Row, Col, message, Button, Tag, Alert } from "antd";
 import { Plus } from "lucide-react";
 
 import MasterHeader from "../Masters/components/MasterHeader";
@@ -13,6 +13,14 @@ import api from "../../../services/API/api";
 
 const { TextArea } = Input;
 
+// Machine type = prefix of the generated code (ICT -> ICT-0001, ICT-0002 ...).
+const MACHINE_TYPE_OPTIONS = [
+  { value: "ICT", label: "ICT" },
+  { value: "FCT", label: "FCT" },
+  { value: "HIPT", label: "HIPT" },
+  { value: "AOI", label: "AOI" },
+];
+
 const formatCreatedDate = (dateInput) =>
   new Date(dateInput || Date.now()).toLocaleDateString("en-GB", {
     day: "2-digit",
@@ -20,7 +28,8 @@ const formatCreatedDate = (dateInput) =>
     year: "numeric",
   });
 
-// Server sends/expects { categoryId, factoryId, lineId, name, description, is_active(update only) }.
+// Server sends/expects { categoryId, factoryId, lineId, name, description, machineType(optional), is_active(update only) }.
+// machine_code is generated on the server and returned as machine_code / machine_type.
 const normalizeStage = (item, categoryOptions = [], factoryOptions = [], lineOptions = []) => ({
   id: item._id || item.id,
   categoryId: item.category_id ?? item.categoryId,
@@ -38,6 +47,8 @@ const normalizeStage = (item, categoryOptions = [], factoryOptions = [], lineOpt
     : "\u2014",
   stageName: item.name,
   stageDescription: item.description,
+  machineCode: item.machine_code || null,
+  machineType: item.machine_type || null,
   status: item.status || (item.is_active === 0 ? "Inactive" : "Active"),
   createdDate: formatCreatedDate(item.created_at || item.createdAt || item.createdDate),
 });
@@ -59,6 +70,10 @@ const ManageStages = () => {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   const factoryValue = Form.useWatch("factoryId", form);
+  const supportsExternalMachine = Form.useWatch("supportsExternalMachine", form);
+
+  // A machine code is permanent once issued (the Machine Connector is installed with it).
+  const hasMachineCode = !!editingRecord?.machineCode;
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -116,6 +131,7 @@ const ManageStages = () => {
       item.factoryName.toLowerCase().includes(query) ||
       item.lineName.toLowerCase().includes(query) ||
       item.stageName.toLowerCase().includes(query) ||
+      (item.machineCode || "").toLowerCase().includes(query) ||
       (item.stageDescription || "").toLowerCase().includes(query);
     const matchesStatus = statusFilter === "All" || item.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -124,7 +140,7 @@ const ManageStages = () => {
   // Lines scoped to selected factory
   const lineOptionsForForm = allLines.filter((l) => l.factoryId === factoryValue);
 
-  // openAddModal now accepts an optional preset { factoryId, lineId }
+  // openAddModal accepts an optional preset { factoryId, lineId }
   const openAddModal = (preset = {}) => {
     setEditingRecord(null);
     form.resetFields();
@@ -142,6 +158,8 @@ const ManageStages = () => {
       lineId: record.lineId || undefined,
       stageName: record.stageName,
       stageDescription: record.stageDescription,
+      supportsExternalMachine: !!record.machineCode,
+      machineType: record.machineType || undefined,
       isActive: record.status !== "Inactive",
     });
     setFormOpen(true);
@@ -149,6 +167,10 @@ const ManageStages = () => {
 
   const handleFactoryChange = () => {
     form.setFieldsValue({ lineId: undefined });
+  };
+
+  const handleSupportsMachineChange = (checked) => {
+    if (!checked) form.setFieldsValue({ machineType: undefined });
   };
 
   const handleSubmit = async () => {
@@ -165,20 +187,32 @@ const ManageStages = () => {
       lineId: values.lineId,
       name: values.stageName,
       description: values.stageDescription,
+      // Only sent when the stage doesn't have a code yet — the server generates
+      // a globally unique code (e.g. ICT-0003) from this type.
+      ...(values.supportsExternalMachine && !hasMachineCode ? { machineType: values.machineType } : {}),
       ...(editingRecord ? { is_active: values.isActive ? 1 : 0 } : {}),
     };
 
     try {
       setSaving(true);
+      let res;
       if (editingRecord) {
-        await api.put(`/stages/update/${editingRecord.id}`, payload);
+        res = await api.put(`/stages/update/${editingRecord.id}`, payload);
       } else {
-        await api.post("/stages/create", payload);
+        res = await api.post("/stages/create", payload);
       }
 
-      // controllers only return id/message, not the joined row — refetch.
+      // controllers only return id/message (+ machine_code on create), not the joined row — refetch.
       await loadInitialData();
-      message.success(editingRecord ? "Stage updated" : "Stage created");
+
+      const newCode = !editingRecord ? res.data?.machine_code : null;
+      message.success(
+        editingRecord
+          ? "Stage updated"
+          : newCode
+          ? `Stage created — machine code ${newCode}`
+          : "Stage created"
+      );
       setFormOpen(false);
     } catch (err) {
       console.log("ERROR IN HANDLE SUBMIT", err);
@@ -202,52 +236,64 @@ const ManageStages = () => {
     }
   };
 
- // Group filtered stations by line
-const lineGroups = useMemo(() => {
-  const map = new Map();
-  filteredData.forEach((stage) => {
-    const key = stage.lineId || `unassigned-${stage.factoryId || "none"}`;
-    if (!map.has(key)) {
-      map.set(key, {
-        id: key,
-        lineId: stage.lineId,
-        lineName: stage.lineName,
-        factoryId: stage.factoryId,
-        factoryName: stage.factoryName,
-        stations: [],
-      });
-    }
-    map.get(key).stations.push(stage);
-  });
-  return Array.from(map.values());
-}, [filteredData]);
+  // Group filtered stations by line
+  const lineGroups = useMemo(() => {
+    const map = new Map();
+    filteredData.forEach((stage) => {
+      const key = stage.lineId || `unassigned-${stage.factoryId || "none"}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          lineId: stage.lineId,
+          lineName: stage.lineName,
+          factoryId: stage.factoryId,
+          factoryName: stage.factoryName,
+          stations: [],
+        });
+      }
+      map.get(key).stations.push(stage);
+    });
+    return Array.from(map.values());
+  }, [filteredData]);
 
-const lineColumns = [
-  { title: "Line", dataIndex: "lineName", key: "lineName" },
-  { title: "Factory", dataIndex: "factoryName", key: "factoryName" },
-  {
-    title: "Stations",
-    key: "stationCount",
-    render: (_, record) => record.stations.length,
-  },
-  {
-    title: "Active / Inactive",
-    key: "statusSummary",
-    render: (_, record) => {
-      const active = record.stations.filter((s) => s.status === "Active").length;
-      return `${active} Active / ${record.stations.length - active} Inactive`;
+  const lineColumns = [
+    { title: "Line", dataIndex: "lineName", key: "lineName" },
+    { title: "Factory", dataIndex: "factoryName", key: "factoryName" },
+    {
+      title: "Stations",
+      key: "stationCount",
+      render: (_, record) => record.stations.length,
     },
-  },
-];
+    {
+      title: "External Machines",
+      key: "machineCount",
+      render: (_, record) => record.stations.filter((s) => s.machineCode).length,
+    },
+    {
+      title: "Active / Inactive",
+      key: "statusSummary",
+      render: (_, record) => {
+        const active = record.stations.filter((s) => s.status === "Active").length;
+        return `${active} Active / ${record.stations.length - active} Inactive`;
+      },
+    },
+  ];
 
-// Station columns shown inside the expanded row (Factory/Line dropped — redundant here)
-const stationColumns = [
-  { title: "Station Name", dataIndex: "stageName", key: "stageName" },
-  { title: "Category", dataIndex: "categoryName", key: "categoryName" },
-  { title: "Description", dataIndex: "stageDescription", key: "stageDescription", ellipsis: true },
-  { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
-  { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
-];
+  // Station columns shown inside the expanded row (Factory/Line dropped — redundant here)
+  const stationColumns = [
+    { title: "Station Name", dataIndex: "stageName", key: "stageName" },
+    {
+      title: "Machine Code",
+      dataIndex: "machineCode",
+      key: "machineCode",
+      render: (v) =>
+        v ? <Tag color="blue">{v}</Tag> : <span style={{ color: "#94A3B8" }}>—</span>,
+    },
+    { title: "Category", dataIndex: "categoryName", key: "categoryName" },
+    { title: "Description", dataIndex: "stageDescription", key: "stageDescription", ellipsis: true },
+    { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
+    { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
+  ];
 
   return (
     <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius: 5, overflow: "hidden" }}>
@@ -256,14 +302,14 @@ const stationColumns = [
           title="Manage Stages"
           description="Manage manufacturing stages linked to factory, line and category"
           buttonLabel="Add Stage"
-          onAddClick={openAddModal}
+          onAddClick={() => openAddModal()}
         />
       </div>
 
       <MasterToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by category, factory, line, Station name or description..."
+        searchPlaceholder="Search by category, factory, line, station name, machine code or description..."
         statusValue={statusFilter}
         onStatusChange={setStatusFilter}
       />
@@ -370,9 +416,67 @@ const stationColumns = [
             </Col>
           </Row>
 
-          <Form.Item name="stageDescription" label="Station Description" style={{ marginBottom: editingRecord ? 16 : 0 }}>
+          <Form.Item name="stageDescription" label="Station Description" style={{ marginBottom: 16 }}>
             <TextArea rows={2} placeholder="Short description of the station" />
           </Form.Item>
+
+          {/* External machine support — machine code is generated server-side on save */}
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="supportsExternalMachine"
+                label="Does this stage support an external machine?"
+                valuePropName="checked"
+                initialValue={false}
+                style={{ marginBottom: supportsExternalMachine ? 16 : editingRecord ? 16 : 0 }}
+              >
+                <Switch
+                  checkedChildren="Yes"
+                  unCheckedChildren="No"
+                  disabled={hasMachineCode}
+                  onChange={handleSupportsMachineChange}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              {supportsExternalMachine && (
+                <Form.Item
+                  name="machineType"
+                  label="Machine Type"
+                  rules={[{ required: true, message: "Please select a machine type" }]}
+                  style={{ marginBottom: 16 }}
+                >
+                  <Select
+                    placeholder="Select machine type"
+                    options={MACHINE_TYPE_OPTIONS}
+                    disabled={hasMachineCode}
+                  />
+                </Form.Item>
+              )}
+            </Col>
+          </Row>
+
+          {supportsExternalMachine && (
+            <Alert
+              type={hasMachineCode ? "success" : "info"}
+              showIcon
+              style={{ marginBottom: editingRecord ? 16 : 0 }}
+              message={
+                hasMachineCode ? (
+                  <span>
+                    Machine Code: <Tag color="blue" style={{ marginInlineStart: 4 }}>{editingRecord.machineCode}</Tag>
+                  </span>
+                ) : (
+                  "A unique machine code will be generated automatically when you save this stage."
+                )
+              }
+              description={
+                hasMachineCode
+                  ? "This code is permanent. Every product that uses this stage in its flow shares it."
+                  : "Every product that uses this stage in its flow will share the same code."
+              }
+            />
+          )}
 
           {editingRecord && (
             <Form.Item name="isActive" label="Active" valuePropName="checked" style={{ marginBottom: 0 }}>
