@@ -58,6 +58,16 @@ export default function useScanSubmission({
   const pendingRef = useRef([]);      // always-current copy, so fast scans never see stale state
   const savingRef = useRef(false);    // blocks scans while a group is being saved
 
+
+  useEffect(() => {
+    if (!errorPopup) return;
+    playAlarm(
+      errorPopup.type === "DUPLICATE"
+        ? { beeps: 2, freq: 900 }
+        : { beeps: 3, freq: 1000 }
+    );
+  }, [errorPopup]);
+
   useEffect(() => {
     pendingRef.current = pendingGroupScans;
   }, [pendingGroupScans]);
@@ -118,20 +128,14 @@ export default function useScanSubmission({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId, stageFlowRows]);
 
-  const showErrorPopup = (popup) => {
-    playAlarm(
-      popup.type === "DUPLICATE"
-        ? { beeps: 2 }
-        : { beeps: 4, freq: 1000 }
-    );
-    
-    if (errorPopupTimeoutRef.current) clearTimeout(errorPopupTimeoutRef.current);
-    setErrorPopup(popup);
-    errorPopupTimeoutRef.current = setTimeout(() => {
-      setErrorPopup(null);
-      errorPopupTimeoutRef.current = null;
-    }, 8000);
-  };
+const showErrorPopup = (popup) => {
+  if (errorPopupTimeoutRef.current) clearTimeout(errorPopupTimeoutRef.current);
+  setErrorPopup(popup);
+  errorPopupTimeoutRef.current = setTimeout(() => {
+    setErrorPopup(null);
+    errorPopupTimeoutRef.current = null;
+  }, 8000);
+};
 
   const clearMissingHighlight = () => {
     if (missingResetTimeoutRef.current) {
@@ -264,6 +268,7 @@ export default function useScanSubmission({
         }
 
         case "EXTERNAL_DEPENDENCY_FAILED": {
+          playAlarm({ beeps: 4, freq: 1000 });
           const dependency = data.stage;
           if (dependency?.sequence_no != null) {
             const dependencyIndex = Number(dependency.sequence_no) - 1;
@@ -572,7 +577,7 @@ export default function useScanSubmission({
     setPendingGroupScans((prev) => prev.filter((s) => s.tempId !== tempId));
   };
 
-  const saveGroupWith = async (scans) => {
+ const saveGroupWith = async (scans) => {
   if (!scans.length || savingRef.current) return;
   savingRef.current = true;
   setSavingGroup(true);
@@ -581,16 +586,28 @@ export default function useScanSubmission({
       scanned_values: scans.map((s) => s.code),
       product_id: form.productId,
     });
+
     if (!res?.data?.success) {
-      notification.error({ title: "Group save failed", description: res?.data?.message || "Failed to save group", placement: "topRight" });
-      return; // scans stay pending so the operator can retry with Save Group
+      // goes through popup + alarm; scans stay pending so the operator can retry
+      handleStageScanned(assignedStageIndex, {
+        ...res?.data,
+        success: false,
+        message: res?.data?.message || "Failed to save group",
+      });
+      return;
     }
+
     setErrorMessage(null);
     setSuccessMessage(`Group of ${scans.length} saved successfully.`);
+    pendingRef.current = [];          // clear immediately, don't wait for the effect
     setPendingGroupScans([]);
-    notification.success({ title: "Group saved", description: res?.data?.message || "Group saved successfully.", placement: "topRight" });
+    notification.success({
+      title: "Group saved",
+      description: res?.data?.message || "Group saved successfully.",
+      placement: "topRight",
+    });
 
-    await handleStageScanned(assignedStageIndex, res.data);
+    handleStageScanned(assignedStageIndex, res.data);
     fetchLatestScans();
 
     if (groupResetTimeoutRef.current) clearTimeout(groupResetTimeoutRef.current);
@@ -606,9 +623,13 @@ export default function useScanSubmission({
       groupResetTimeoutRef.current = null;
     }, 3000);
   } catch (err) {
-    const msg = err?.response?.data?.message || "Failed to save group";
-    setErrorMessage(msg);
-    notification.error({ title: "Group save failed", description: msg, placement: "topRight" });
+    const data = err?.response?.data;
+    handleStageScanned(assignedStageIndex, {
+      ...data,
+      success: false,
+      errorType: data?.errorType || "NETWORK_ERROR",
+      message: data?.message || "Failed to save group",
+    });
   } finally {
     savingRef.current = false;
     setSavingGroup(false);
