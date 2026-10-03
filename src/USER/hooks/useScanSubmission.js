@@ -4,6 +4,8 @@ import api from "../../services/API/api"; // adjust path if your folder depth di
 import { SCAN_MODES } from "../constants/scanModes";
 import { CUSTOMER_BINDING_PCB_ERRORS, ERROR_POPUP_CONFIG, getErrorPopupConfig } from "../constants/errorPopupConfig";
 import useBoxLabelPrinter from "./useBoxLabelPrinter";
+import { playAlarm, unlockAudio } from "../../utils/alertSound";
+
 
 // Everything to do with actually recording a scan: the left-rail
 // stage-status array, the flash/confirm animation, the non-blocking error
@@ -22,6 +24,9 @@ export default function useScanSubmission({
   assignedStageIndex,
   setStageStats,
   fetchLatestScans,
+  printSupported,
+  printerName,
+  checkPrinterReady,
 }) {
   const { printBoxLabel } = useBoxLabelPrinter();
 
@@ -37,7 +42,6 @@ export default function useScanSubmission({
   const [missingStages, setMissingStages] = useState([]); // [{ index, label }]
   const [errorPopup, setErrorPopup] = useState(null);
 
-  // GROUP_CREATE staging
   const [pendingGroupScans, setPendingGroupScans] = useState([]);
   const [savingGroup, setSavingGroup] = useState(false);
 
@@ -49,6 +53,14 @@ export default function useScanSubmission({
   const errorPopupTimeoutRef = useRef(null);
   const groupResetTimeoutRef = useRef(null);
   const missingResetTimeoutRef = useRef(null);
+
+  const [groupSize, setGroupSize] = useState(null);
+  const pendingRef = useRef([]);      // always-current copy, so fast scans never see stale state
+  const savingRef = useRef(false);    // blocks scans while a group is being saved
+
+  useEffect(() => {
+    pendingRef.current = pendingGroupScans;
+  }, [pendingGroupScans]);
 
   useEffect(() => {
     wipCodeRef.current?.focus();
@@ -71,6 +83,16 @@ export default function useScanSubmission({
       return () => clearTimeout(timer);
     }
   }, [errorMessage, successMessage]);
+
+  useEffect(() => {
+    const unlock = () => unlockAudio();
+    window.addEventListener("keydown", unlock, { once: true });
+    window.addEventListener("click", unlock, { once: true });
+    return () => {
+      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("click", unlock);
+    };
+  }, []);
 
   // Reset all in-progress scan state whenever the product changes (either
   // cleared, or a new stage flow finished loading for it) — mirrors the
@@ -97,6 +119,12 @@ export default function useScanSubmission({
   }, [productId, stageFlowRows]);
 
   const showErrorPopup = (popup) => {
+    playAlarm(
+      popup.type === "DUPLICATE"
+        ? { beeps: 2 }
+        : { beeps: 4, freq: 1000 }
+    );
+    
     if (errorPopupTimeoutRef.current) clearTimeout(errorPopupTimeoutRef.current);
     setErrorPopup(popup);
     errorPopupTimeoutRef.current = setTimeout(() => {
@@ -281,15 +309,18 @@ export default function useScanSubmission({
       return;
     }
 
-    // ==========================================================
+    // ==========================================================r
+
     // SCAN SUCCESS
     // ==========================================================
     applyStageStatsFromResponse(data.data);
 
+    // 2. in handleStageScanned success branch (replace the console.log + print call)
     const packaging = data.data?.packaging;
     if (packaging?.print_job_created) {
-      printBoxLabel(packaging);
+      printBoxLabel(packaging, printerName);
     }
+
 
     setStageStatus((prev) => {
       const next = [...prev];
@@ -388,6 +419,7 @@ export default function useScanSubmission({
   // ------------------------------------------------------------------
   const handleWipCodeScanned = async () => {
     const code = form.wipBarCode.trim()?.toUpperCase();
+
     if (!code) return;
 
     clearMissingHighlight();
@@ -419,29 +451,66 @@ export default function useScanSubmission({
       return;
     }
 
-    // ---- GROUP_CREATE: stage scans locally, no server call yet ----
-    if (stageFlow.scan_mode === SCAN_MODES.GROUP_CREATE) {
-      let wasDuplicate = false;
-      setPendingGroupScans((prev) => {
-        if (prev.some((s) => s.code === code)) {
-          wasDuplicate = true;
-          const dupeMsg = `"${code}" is already in the pending list.`;
-          setErrorMessage(dupeMsg);
-          showErrorPopup({ type: "DUPLICATE", title: "Already Scanned", message: dupeMsg });
-          return prev;
-        }
-        
-        const next = [...prev, { code, tempId: `${code}-${Date.now()}` }];
-        setErrorMessage(`Scan added (${next.length} pending). Save group when ready.`);
-        return next;
-      });
+    // 3. in handleWipCodeScanned, right after the `!stageFlow` check
+    if (printSupported && !printerName) {
+      const msg = "Connect the printer before scanning. This product prints a label at this station.";
+      setErrorMessage(msg);
+      setForm((f) => ({ ...f, wipBarCode: "" }));
+      showErrorPopup({ type: "ERROR", title: "Printer not connected", message: msg });
+      setTimeout(() => wipCodeRef.current?.focus(), 0);
+      return;
+    }
 
-      if (!wasDuplicate) {
+    if (printSupported) {
+      let ready = true;
+      try {
+        ready = checkPrinterReady ? await checkPrinterReady() : true;
+      } catch (e) {
+        console.warn("Printer status check failed:", e);
+      }
+      if (!ready) {
+        const msg = "Printer is not ready (offline or paper out). Fix the printer before scanning.";
+        setErrorMessage(msg);
         setForm((f) => ({ ...f, wipBarCode: "" }));
+        showErrorPopup({ type: "ERROR", title: "Printer not ready", message: msg });
+        setTimeout(() => wipCodeRef.current?.focus(), 0);
+        return;
+      }
+    }
+
+    // ---- GROUP_CREATE: stage scans locally, no server call yet ----
+   if (stageFlow.scan_mode === SCAN_MODES.GROUP_CREATE) {
+      setForm((f) => ({ ...f, wipBarCode: "" }));
+      setTimeout(() => wipCodeRef.current?.focus(), 50);
+
+      if (savingRef.current) return; // group is being saved, ignore stray scans
+
+      if (!groupSize) {
+        const msg = "Enter the group quantity before scanning.";
+        setErrorMessage(msg);
+        showErrorPopup({ type: "ERROR", title: "Group quantity missing", message: msg });
+        return;
       }
 
-      setForm((f) => ({ ...f, wipBarCode: "" }));   // ← add this
-      setTimeout(() => wipCodeRef.current?.focus(), 50);
+      const current = pendingRef.current;
+
+      if (current.some((s) => s.code === code)) {
+        const dupeMsg = `"${code}" is already in the pending list.`;
+        setErrorMessage(dupeMsg);
+        showErrorPopup({ type: "DUPLICATE", title: "Already Scanned", message: dupeMsg });
+        return;
+      }
+
+      const next = [...current, { code, tempId: `${code}-${Date.now()}` }];
+      pendingRef.current = next;
+      setPendingGroupScans(next);
+
+      if (next.length >= groupSize) {
+        setErrorMessage(null);
+        await saveGroupWith(next); // auto-save when the group is full
+      } else {
+        setErrorMessage(`Scan added (${next.length}/${groupSize}).`);
+      }
       return;
     }
 
@@ -492,6 +561,7 @@ export default function useScanSubmission({
     handleStageScanned(resultIndex, result);
   };
 
+
   const handleCancelCustomerBinding = () => {
     setPendingPcbQr(null);
     setForm((f) => ({ ...f, wipBarCode: "" }));
@@ -502,52 +572,57 @@ export default function useScanSubmission({
     setPendingGroupScans((prev) => prev.filter((s) => s.tempId !== tempId));
   };
 
-  const handleSaveGroup = async () => {
-    if (!pendingGroupScans.length) {
-      notification.warning({ message: "Nothing to save", description: "There are no pending scans to group.", placement: "topRight" });
-      return;
+  const saveGroupWith = async (scans) => {
+  if (!scans.length || savingRef.current) return;
+  savingRef.current = true;
+  setSavingGroup(true);
+  try {
+    const res = await api.post("/scan-history/create-group", {
+      scanned_values: scans.map((s) => s.code),
+      product_id: form.productId,
+    });
+    if (!res?.data?.success) {
+      notification.error({ title: "Group save failed", description: res?.data?.message || "Failed to save group", placement: "topRight" });
+      return; // scans stay pending so the operator can retry with Save Group
     }
-    setSavingGroup(true);
-    try {
-      const res = await api.post("/scan-history/create-group", {
-        scanned_values: pendingGroupScans.map((s) => s.code),
-        product_id: form.productId,
+    setErrorMessage(null);
+    setSuccessMessage(`Group of ${scans.length} saved successfully.`);
+    setPendingGroupScans([]);
+    notification.success({ title: "Group saved", description: res?.data?.message || "Group saved successfully.", placement: "topRight" });
+
+    await handleStageScanned(assignedStageIndex, res.data);
+    fetchLatestScans();
+
+    if (groupResetTimeoutRef.current) clearTimeout(groupResetTimeoutRef.current);
+    groupResetTimeoutRef.current = setTimeout(() => {
+      setStageStatus((prev) => {
+        const next = [...prev];
+        next[assignedStageIndex] = "pending";
+        return next;
       });
-      if (!res?.data?.success) {
-        notification.error({ message: "Group save failed", description: res?.data?.message || "Failed to save group", placement: "topRight" });
-        return;
-      }
-      setErrorMessage(null);
-      setSuccessMessage("Group saved successfully.");
-      setPendingGroupScans([]);
-      notification.success({ message: "Group saved", description: res?.data?.message || "Group saved successfully.", placement: "topRight" });
+      setLastConfirmed(-1);
+      setGroupId(null);
+      setSerialNo(null);
+      groupResetTimeoutRef.current = null;
+    }, 3000);
+  } catch (err) {
+    const msg = err?.response?.data?.message || "Failed to save group";
+    setErrorMessage(msg);
+    notification.error({ title: "Group save failed", description: msg, placement: "topRight" });
+  } finally {
+    savingRef.current = false;
+    setSavingGroup(false);
+    setTimeout(() => wipCodeRef.current?.focus(), 50);
+  }
+};
 
-      // Wire the real server response into stats/targets and stage tiles —
-      // and refresh the recent-scans feed with the newly inserted rows.
-      await handleStageScanned(assignedStageIndex, res.data);
-      fetchLatestScans();
-      setTimeout(() => wipCodeRef.current?.focus(), 50);
-
-      if (groupResetTimeoutRef.current) clearTimeout(groupResetTimeoutRef.current);
-      groupResetTimeoutRef.current = setTimeout(() => {
-        setStageStatus((prev) => {
-          const next = [...prev];
-          next[assignedStageIndex] = "pending";
-          return next;
-        });
-        setLastConfirmed(-1);
-        setGroupId(null);
-        setSerialNo(null);
-        groupResetTimeoutRef.current = null;
-      }, 3000);
-    } catch (err) {
-      const msg = err?.response?.data?.message || "Failed to save group";
-      setErrorMessage(msg);
-      notification.error({ message: "Group save failed", description: msg, placement: "topRight" });
-    } finally {
-      setSavingGroup(false);
-    }
-  };
+const handleSaveGroup = () => {
+  if (!pendingRef.current.length) {
+    notification.warning({ title: "Nothing to save", description: "There are no pending scans to group.", placement: "topRight" });
+    return;
+  }
+  return saveGroupWith(pendingRef.current);
+};
 
   return {
     // stage rail
@@ -567,6 +642,8 @@ export default function useScanSubmission({
     savingGroup,
     handleSaveGroup,
     handleRemovePendingScan,
+    groupSize,
+    setGroupSize,
 
     // customer binding
     pendingPcbQr,

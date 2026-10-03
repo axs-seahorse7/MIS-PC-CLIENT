@@ -12,6 +12,7 @@ import StatsRow from "../components/StatsRow";
 import ScanPanel from "../components/ScanPanel";
 import RecentScansPanel from "../components/RecentScansPanel";
 
+import usePrinterSelection from "../hooks/usePrinterSelection";
 import useProducts from "../hooks/useProducts";
 import useProductionForm from "../hooks/useProductionForm";
 import useStageFlow from "../hooks/useStageFlow";
@@ -27,6 +28,12 @@ export default function MIInput() {
   const stageFlowApi = useStageFlow({ productId: productionForm.form.productId, user });
   const recentScansApi = useRecentScans({ user, productId: productionForm.form.productId });
 
+  
+  const printer = usePrinterSelection({
+    productId: productionForm.form.productId,
+    stageId: user?.stage?.id,
+  });
+
   const scan = useScanSubmission({
     user,
     form: productionForm.form,
@@ -37,6 +44,9 @@ export default function MIInput() {
     assignedStageIndex: stageFlowApi.assignedStageIndex,
     setStageStats: productionForm.setStageStats,
     fetchLatestScans: recentScansApi.fetchLatestScans,
+    printSupported: printer.supportsPrint,
+    printerName: printer.printerName,
+    checkPrinterReady: printer.checkStatus,
   });
 
   useKeepWipFocus(scan.wipCodeRef);
@@ -98,10 +108,25 @@ export default function MIInput() {
                 pendingGroupScans={scan.pendingGroupScans}
                 savingGroup={scan.savingGroup}
                 onSaveGroup={scan.handleSaveGroup}
+                groupSize={scan.groupSize}
+                onGroupSizeChange={scan.setGroupSize}
                 onRemovePendingScan={scan.handleRemovePendingScan}
                 pendingPcbQr={scan.pendingPcbQr}
                 onCancelCustomerBinding={scan.handleCancelCustomerBinding}
+                printSupported={printer.supportsPrint}
+                printerName={printer.printerName}
+                printers={printer.printers}
+                printerQzState={printer.qzState}
+                onSelectPrinter={printer.selectPrinter}
+                onRefreshPrinters={printer.refreshPrinters}
+                printerVerified={printer.verified}
+                onVerified={() => printer.setVerified(true)}
+                onTestPrint={printer.testPrint}
+                printStageId={user?.stage?.id}
+                onCheckPrinter={printer.checkStatus}
+               
               />
+            
             </Col>
 
             <Col span={12} style={{ height: "100%" }}>

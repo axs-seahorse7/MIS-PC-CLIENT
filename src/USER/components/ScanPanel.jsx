@@ -4,6 +4,8 @@ import { ScanOutlined, QrcodeOutlined  } from "@ant-design/icons";
 import { SCAN_MODES } from "../constants/scanModes";
 import GroupCreatePanel from "./GroupCreatePanel";
 import CustomerBindingPanel from "./CustomerBindingPanel";
+import PrinterStatusButton from "./PrinterStatusButton";
+import ReprintLabelButton from "./ReprintLabelButton";
 
 const { Text } = Typography;
 
@@ -32,9 +34,25 @@ export default function ScanPanel({
   savingGroup,
   onSaveGroup,
   onRemovePendingScan,
+  groupSize,
+  onGroupSizeChange,
   // CUSTOMER_BINDING
   pendingPcbQr,
   onCancelCustomerBinding,
+
+  printSupported,
+  printerName,
+  printers,
+  printerQzState,
+  onSelectPrinter,
+  onRefreshPrinters,
+  printerStatus,   // new
+  statusText,
+  printerVerified,
+  onVerified,
+  onTestPrint,
+  printStageId,
+  onCheckPrinter,
 }) {
   const scanMode = stageFlow?.scan_mode;
   const [wipFocused, setWipFocused] = useState(false);
@@ -106,6 +124,33 @@ const wipReady = !!form.productId && mode === "view" && !form.wipBarCode;
       />
     </div>
 
+    {printSupported && (
+      <>
+        <PrinterStatusButton
+          printerName={printerName}
+          printers={printers}
+          qzState={printerQzState}
+          onSelect={onSelectPrinter}
+          onRefresh={onRefreshPrinters}
+          printerStatus={printerStatus}
+          statusText={statusText}
+          printerVerified={printerVerified}
+          onVerified={onVerified}
+          onTestPrint={onTestPrint}
+        />
+        <ReprintLabelButton
+          productId={form.productId}
+          stageId={printStageId}
+          printerName={printerName}
+          onCheckPrinter={onCheckPrinter}
+        />
+      </>
+
+        
+      )}
+
+      
+
       <div>
         <Text
           strong
@@ -147,6 +192,8 @@ const wipReady = !!form.productId && mode === "view" && !form.wipBarCode;
           savingGroup={savingGroup}
           onSaveGroup={onSaveGroup}
           onRemovePendingScan={onRemovePendingScan}
+          groupSize={groupSize}
+          onGroupSizeChange={onGroupSizeChange}
         />
       )}
 
