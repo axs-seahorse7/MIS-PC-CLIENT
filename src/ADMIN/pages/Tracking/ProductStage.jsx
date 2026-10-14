@@ -89,6 +89,8 @@ const normalizeFlow = (item, productOptions = [], stageOptions = []) => {
       item.productName || item.product_name || productOptions.find((p) => p.value === item.product_id)?.label || "-",
     stageId: item.stage_id,
     stageName: item.stageName || item.stage_name || stageOptions.find((s) => s.value === item.stage_id)?.label || "-",
+    lineId: item.line_id ?? null,
+    lineName: item.line_name || "-",
     sequenceNo: item.sequence_no,
     scanMode: item.scan_mode || "SINGLE",
     isExternalDependency: !!item.is_external_dependency,
@@ -111,6 +113,9 @@ const normalizeFlow = (item, productOptions = [], stageOptions = []) => {
 const ProductStage = () => {
   const [flows, setFlows] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const [lineOptions, setLineOptions] = useState([]);
+  const [selectedLineId, setSelectedLineId] = useState(null); 
 
   const [productOptions, setProductOptions] = useState([]);
   // { value, label, machineCode, machineType } — machineCode/Type come from the stage
@@ -143,27 +148,43 @@ const ProductStage = () => {
     loadInitialData();
   }, []);
 
+  const filteredStageOptions = stageOptions.filter(
+    (stage) => Number(stage.lineId) === Number(selectedLineId)
+  );
+
   const loadInitialData = async () => {
     try {
       setLoading(true);
       setOptionsLoading(true);
 
-      const [productsRes, stagesRes, flowsRes] = await Promise.all([
+     const [productsRes, stagesRes, flowsRes, linesRes] = await Promise.all([
         api.get("/products/admin"),
         api.get("/stages/all"),
         api.get("/product-stage-flow/all"),
+        api.get("/production-lines/all"), // Confirm this endpoint exists in your server
       ]);
+
+      const lineList = (linesRes.data?.data || linesRes.data || []).map((line) => ({
+        value: line.id || line._id,
+        label: line.name,
+      }));
+
+      setLineOptions(lineList);
 
       const productList = (productsRes.data?.data || productsRes.data || []).map((p) => ({
         value: p._id || p.id,
         label: p.name,
       }));
+      
       const stageList = (stagesRes.data?.data || stagesRes.data || []).map((s) => ({
         value: s._id || s.id,
         label: s.name,
+        lineId: s.line_id,
+        lineName: s.line_name || "-",
         machineCode: s.machine_code || null,
         machineType: s.machine_type || null,
       }));
+
       setProductOptions(productList);
       setStageOptions(stageList);
 
@@ -260,6 +281,7 @@ const ProductStage = () => {
     const payload = {
       product_id: values.productId,
       stage_id: values.stageId,
+      line_id: stageOptions.find((stage) => Number(stage.value) === Number(values.stageId))?.lineId,
       scan_mode: values.scanMode,
       is_external_dependency: isExternal,
       external_source: isExternal ? values.externalSource : null,
@@ -365,37 +387,69 @@ const ProductStage = () => {
     { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
   ];
 
+  
   const productGroups = useMemo(() => {
-  const map = new Map();
-  filteredData.forEach((flow) => {
-    if (!map.has(flow.productId)) {
-      map.set(flow.productId, { id: flow.productId, productName: flow.productName, stages: [] });
+    const map = new Map();
+
+    filteredData.forEach((flow) => {
+      const key = `${flow.productId}-${flow.lineId}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          productId: flow.productId,
+          lineId: flow.lineId,
+          productName: flow.productName,
+          lineName: flow.lineName,
+          stages: [],
+        });
+      }
+
+      map.get(key).stages.push(flow);
+    });
+
+    map.forEach((group) =>
+      group.stages.sort((a, b) => a.sequenceNo - b.sequenceNo)
+    );
+
+    return Array.from(map.values());
+  }, [filteredData]);
+
+
+  const productColumns = [
+    { title: "Product", dataIndex: "productName", key: "productName" },
+    { title: "Production Line", dataIndex: "lineName", key: "lineName" },
+    { title: "Stages in Flow", key: "count", render: (_, r) => r.stages.length },
+  ];
+
+
+  const handleReorder = async (productId, lineId, orderedIds) => {
+    setFlows((prev) => {
+      const map = new Map(orderedIds.map((id, idx) => [id, idx + 1]));
+
+      return prev.map((flow) =>
+        Number(flow.productId) === Number(productId) &&
+        Number(flow.lineId) === Number(lineId) &&
+        map.has(flow.id)
+          ? { ...flow, sequenceNo: map.get(flow.id) }
+          : flow
+      );
+    });
+
+    try {
+      await api.patch("/product-stage-flow/reorder", {
+        productId,
+        lineId,
+        orderedIds,
+      });
+    } catch (err) {
+      message.error(
+        err?.response?.data?.message || "Failed to reorder — reverting"
+      );
+      await loadInitialData();
     }
-    map.get(flow.productId).stages.push(flow);
-  });
-  map.forEach((g) => g.stages.sort((a, b) => a.sequenceNo - b.sequenceNo));
-  return Array.from(map.values());
-}, [filteredData]);
+  };
 
-const productColumns = [
-  { title: "Product", dataIndex: "productName", key: "productName" },
-  { title: "Stages in Flow", key: "count", render: (_, r) => r.stages.length },
-];
-
-const handleReorder = async (productId, orderedIds) => {
-  // optimistic: renumber locally first
-  setFlows((prev) => {
-    const map = new Map(orderedIds.map((id, idx) => [id, idx + 1]));
-    return prev.map((f) => (map.has(f.id) ? { ...f, sequenceNo: map.get(f.id) } : f));
-  });
-
-  try {
-    await api.patch("/product-stage-flow/reorder", { productId, orderedIds });
-  } catch (err) {
-    message.error(err?.response?.data?.message || "Failed to reorder — reverting");
-    loadInitialData(); // revert to server truth on failure
-  }
-};
 
   return (
     <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius: 5, overflow: "hidden" }}>
@@ -423,7 +477,8 @@ const handleReorder = async (productId, orderedIds) => {
           expandedRowRender: (group) => (
             <div style={{ padding: "8px 4px" }}>
               <SortableFlowList
-                productId={group.id}
+                productId={group.productId}
+                lineId={group.lineId}
                 items={group.stages}
                 onEdit={openEditModal}
                 onDelete={setDeleteTarget}
@@ -442,8 +497,9 @@ const handleReorder = async (productId, orderedIds) => {
         confirmLoading={saving}
       >
         <Form form={form} layout="vertical">
+          
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="productId"
                 label="Product"
@@ -459,7 +515,29 @@ const handleReorder = async (productId, orderedIds) => {
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
+
+            <Col span={8}>
+              <Form.Item
+                name="lineId"
+                label="Production Line"
+                rules={[{ required: true, message: "Please select a production line" }]}
+                style={{ marginBottom: 16 }}
+              >
+                <Select
+                  placeholder="Select production line"
+                  options={lineOptions}
+                  loading={optionsLoading}
+                  showSearch
+                  optionFilterProp="label"
+                  onChange={(value) => {
+                    setSelectedLineId(value);
+                    form.setFieldValue("stageId", undefined);
+                  }}
+                />
+              </Form.Item>
+            </Col>
+
+            <Col span={8}>
               <Form.Item
                 name="stageId"
                 label="Stage"
@@ -469,7 +547,10 @@ const handleReorder = async (productId, orderedIds) => {
                   selectedStage ? (
                     selectedStage.machineCode ? (
                       <span>
-                        Machine Code: <Tag color="blue" style={{ marginInlineEnd: 4 }}>{selectedStage.machineCode}</Tag>
+                        Machine Code:{" "}
+                        <Tag color="blue" style={{ marginInlineEnd: 4 }}>
+                          {selectedStage.machineCode}
+                        </Tag>
                         shared by every product that uses this stage
                       </span>
                     ) : (
@@ -479,9 +560,14 @@ const handleReorder = async (productId, orderedIds) => {
                 }
               >
                 <Select
-                  placeholder="Select stage"
-                  options={stageOptions}
+                  placeholder={
+                    selectedLineId
+                      ? "Select stage"
+                      : "Select production line first"
+                  }
+                  options={filteredStageOptions}
                   loading={optionsLoading}
+                  disabled={!selectedLineId}
                   showSearch
                   optionFilterProp="label"
                   onChange={handleStageChange}
@@ -489,6 +575,7 @@ const handleReorder = async (productId, orderedIds) => {
               </Form.Item>
             </Col>
           </Row>
+
 
           <Row gutter={16}>
             

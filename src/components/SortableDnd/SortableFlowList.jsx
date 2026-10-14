@@ -45,8 +45,8 @@ const SortableRow = ({ item, onEdit, onDelete }) => {
 
 // items: stages for ONE product, already sorted by sequenceNo.
 // onReorder(productId, orderedIds) fires after a successful drag.
-const SortableFlowList = ({ productId, items, onEdit, onDelete, onReorder }) => {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+const SortableFlowList = ({ productId, lineId, items, onEdit, onDelete, onReorder }) => {
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const handleDragEnd = (event) => {
     const { active, over } = event;
@@ -56,7 +56,7 @@ const SortableFlowList = ({ productId, items, onEdit, onDelete, onReorder }) => 
     const newIndex = items.findIndex((i) => i.id === over.id);
     const reordered = arrayMove(items, oldIndex, newIndex);
 
-    onReorder(productId, reordered.map((i) => i.id)); // parent handles optimistic update + API call
+    onReorder(productId, lineId, reordered.map((i) => i.id)); // parent handles optimistic update + API call
   };
 
   return (

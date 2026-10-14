@@ -23,7 +23,7 @@ export default function RecentScansPanel({ recentScans }) {
           flexShrink: 0,
         }}
       >
-        Recent Scanned ({recentScans.length} latest)
+        Recent Scanned bhang bhosda ({recentScans.length} latest)
       </Text>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
