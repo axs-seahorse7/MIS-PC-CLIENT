@@ -65,12 +65,6 @@ const handleErpSelect = (productId, products) => {
 };
 
 const handleOrderSelect = (orderId, orders) => {
-
-   console.log("PO SELECT HANDLER CALLED", {
-    orderId,
-    currentProductId: form.productId,
-    orders,
-  });
   
   const order = orders.find(
     (item) => Number(item.production_order_id) === Number(orderId)

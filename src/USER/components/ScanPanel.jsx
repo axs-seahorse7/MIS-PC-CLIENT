@@ -1,6 +1,11 @@
-import {useState} from "react";
-import { Card, Select, Input, Typography } from "antd";
-import { ScanOutlined, QrcodeOutlined  } from "@ant-design/icons";
+import { useState } from "react";
+import {
+  Card, Select, Input, Typography,
+  Button, Modal, Form, Alert, Space, message
+} from "antd";
+import { LockOutlined, InboxOutlined, QrcodeOutlined, ScanOutlined } from "@ant-design/icons";
+import api from "../../services/API/api";
+
 import { SCAN_MODES } from "../constants/scanModes";
 import GroupCreatePanel from "./GroupCreatePanel";
 import CustomerBindingPanel from "./CustomerBindingPanel";
@@ -56,10 +61,91 @@ export default function ScanPanel({
   onTestPrint,
   printStageId,
   onCheckPrinter,
+
+  isPackagingStage,
 }) {
   const scanMode = stageFlow?.scan_mode;
   const [wipFocused, setWipFocused] = useState(false);
   const wipReady = !!form.productId && mode === "view" && !form.wipBarCode;
+
+  const [partialModalOpen, setPartialModalOpen] = useState(false);
+  const [partialBoxes, setPartialBoxes] = useState([]);
+  const [partialLoading, setPartialLoading] = useState(false);
+  const [partialSubmitting, setPartialSubmitting] = useState(false);
+  const [selectedBoxId, setSelectedBoxId] = useState(undefined);
+  const [workerUsername, setWorkerUsername] = useState("");
+  const [workerPassword, setWorkerPassword] = useState("");
+  const [closureReason, setClosureReason] = useState("");
+
+  const loadPartialBoxes = async () => {
+    if (!form.productId || !printStageId) return;
+
+    setPartialLoading(true);
+    try {
+      const res = await api.get("/scan-history/open-partial-boxes", {
+        params: {
+          product_id: form.productId,
+          stage_id: printStageId,
+        },
+      });
+
+      const rows = res?.data?.data ?? [];
+      setPartialBoxes(rows);
+
+      if (!rows.some((box) => Number(box.box_id) === Number(selectedBoxId))) {
+        setSelectedBoxId(undefined);
+      }
+    } catch (error) {
+      message.error(
+        error?.response?.data?.message || "Failed to load open boxes"
+      );
+    } finally {
+      setPartialLoading(false);
+    }
+  };
+
+  const openPartialBoxModal = async () => {
+    setPartialModalOpen(true);
+    await loadPartialBoxes();
+  };
+
+  const submitPartialClosure = async () => {
+    if (!selectedBoxId || !workerUsername.trim() ||
+        !workerPassword || !closureReason.trim()) {
+      message.warning("Select a box and enter worker credentials and reason");
+      return;
+    }
+
+    setPartialSubmitting(true);
+    try {
+      const res = await api.post("/scan-history/close-partial-box", {
+        box_id: selectedBoxId,
+        username: workerUsername.trim(),
+        password: workerPassword,
+        reason: closureReason.trim(),
+      });
+
+      const closedBox = res?.data?.data;
+
+      message.success(
+        `Box ${closedBox?.box_code} closed. Print job queued.`
+      );
+
+      setPartialBoxes((previous) =>
+        previous.filter((box) => Number(box.box_id) !== Number(selectedBoxId))
+      );
+      setSelectedBoxId(undefined);
+      setWorkerPassword("");
+      setClosureReason("");
+      setPartialModalOpen(false);
+    } catch (error) {
+      message.error(
+        error?.response?.data?.message || "Failed to close partial box"
+      );
+    } finally {
+      setPartialSubmitting(false);
+    }
+  };
 
 
 
@@ -69,6 +155,7 @@ export default function ScanPanel({
       styles={{ body: { padding: 18, height: "100%", display: "flex", flexDirection: "column", gap: 16 } }}
       style={{ border: "1px solid #e3e8ef", borderRadius: 10, height: "100%" }}
     >
+
       <div>
         <FieldLabel text="Select product" />
         <Select
@@ -173,12 +260,6 @@ export default function ScanPanel({
           printerVerified={printerVerified}
           onVerified={onVerified}
           onTestPrint={onTestPrint}
-        />
-        <ReprintLabelButton
-          productId={form.productId}
-          stageId={printStageId}
-          printerName={printerName}
-          onCheckPrinter={onCheckPrinter}
         />
       </>
 

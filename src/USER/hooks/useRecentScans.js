@@ -1,49 +1,64 @@
+
 import { useCallback, useEffect, useState } from "react";
 import { notification } from "antd";
-import api from "../../services/API/api"; // adjust path if your folder depth differs
+import api from "../../services/API/api";
 
-export default function useRecentScans({ user, productId }) {
+export default function useRecentScans({
+  user,
+  productId,
+  productionOrderId,
+}) {
   const [recentScans, setRecentScans] = useState([]);
 
+  const factoryId = user?.factory?.id;
+  const lineId = user?.line?.id;
+  const stageId = user?.stage?.id;
+
   const fetchLatestScans = useCallback(async () => {
-    if (!user?.factory?.id || !user?.line?.id || !user?.stage?.id) {
-      notification.warning({
-        message: "Cannot fetch latest scans",
-        description: "Please select a product and ensure factory, line, and stage are assigned.",
-        placement: "topRight",
-      });
+    if (
+      !factoryId ||
+      !lineId ||
+      !stageId ||
+      !productId ||
+      !productionOrderId
+    ) {
       setRecentScans([]);
       return;
     }
 
-    if (!productId) return;
-
     try {
       const res = await api.get(
-        `/scan-history/latest-scans/${user.factory.id}/${productId}/${user.line.id}/${user.stage.id}`
+        `/scan-history/latest-scans/${factoryId}/${productId}/${lineId}/${stageId}/${productionOrderId}`
       );
+
       const rows = res?.data?.data ?? [];
       setRecentScans(Array.isArray(rows) ? rows : []);
     } catch (err) {
       setRecentScans([]);
+
       notification.error({
         message: "Failed to load latest scans",
         description:
-          err?.response?.data?.message || "Could not fetch the latest scans for this product and stage. Please retry.",
+          err?.response?.data?.message ||
+          "Could not fetch the latest scans for this production order.",
         placement: "topRight",
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, productId]);
+  }, [
+    factoryId,
+    lineId,
+    stageId,
+    productId,
+    productionOrderId,
+  ]);
 
   useEffect(() => {
-    try {
-      fetchLatestScans();
-    } catch (err) {
-      console.error("Error in latest scans effect:", err);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId]);
+    fetchLatestScans();
+  }, [fetchLatestScans]);
 
-  return { recentScans, setRecentScans, fetchLatestScans };
+  return {
+    recentScans,
+    setRecentScans,
+    fetchLatestScans,
+  };
 }

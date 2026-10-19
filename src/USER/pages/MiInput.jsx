@@ -23,15 +23,14 @@ import useKeepWipFocus from "../hooks/useKeepWipFocus";
 
 export default function MIInput() {
   const { user } = useAuth();
-  console.log("MIInput: user:", user);
   const { products, orders, productsLoading } = useProducts();
   const productionForm = useProductionForm({ user });
   const stageFlowApi = useStageFlow({ productId: productionForm.form.productId, user });
-  const recentScansApi = useRecentScans({ user, productId: productionForm.form.productId });
+  const recentScansApi = useRecentScans({ user, productId: productionForm.form.productId,  productionOrderId: productionForm.form.productionOrderId, });
+  const stageFlow = stageFlowApi.stageFlow;
 
- 
 
-  
+
   const printer = usePrinterSelection({
     productId: productionForm.form.productId,
     stageId: user?.stage?.id,
@@ -60,14 +59,10 @@ export default function MIInput() {
   ) || null;
 
 
-   console.log("HEADER PO DEBUG", {
-  productionOrderId: productionForm.form.productionOrderId,
-  orders: orders.map((order) => ({
-    id: order.production_order_id,
-    orderNo: order.production_order_no,
-  })),
-  selectedOrder,
-});
+  const isPackagingStage =
+  Number(stageFlow?.is_packaging_stage) === 1 &&
+  Number(stageFlow?.packaging_config_id) > 0;
+
 
   return (
     <div
@@ -144,15 +139,26 @@ export default function MIInput() {
                 printerVerified={printer.verified}
                 onVerified={() => printer.setVerified(true)}
                 onTestPrint={printer.testPrint}
-                printStageId={user?.stage?.id}
                 onCheckPrinter={printer.checkStatus}
-               
+
+                printStageId={user?.stage?.id}
+                isPackagingStage={isPackagingStage}
               />
             
             </Col>
 
             <Col span={12} style={{ height: "100%" }}>
-              <RecentScansPanel recentScans={recentScansApi.recentScans} />
+              <RecentScansPanel
+                  recentScans={recentScansApi.recentScans}
+                  productId={productionForm.form.productId}
+                  stageId={user?.stage?.id}
+                  printerName={printer.printerName}
+                  onCheckPrinter={printer.checkStatus}
+                  isPackagingStage={
+                    isPackagingStage || 
+                    user?.stage?.name?.trim().toUpperCase() === "PACKAGING"
+                  }
+                />
             </Col>
           </Row>
         </div>

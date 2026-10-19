@@ -57,8 +57,6 @@ export default function ActionBar({ selected, selectedOrder, mode, onNew, onEdit
   const isEditable = mode === "new" || mode === "edit";
   const statusStyle = ORDER_STATUS_STYLE[selectedOrder?.production_order_status] ||ORDER_STATUS_DEFAULT;
 
-  console.log("ActionBar: selectedOrder:", selectedOrder);
-  console.log("ActionBar: statusStyle:", statusStyle);
   return (
     <div
       style={{
