@@ -13,6 +13,8 @@ import {
   Space,
   Card,
   Typography,
+  Modal,
+  Table,
 } from "antd";
 import { EditOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import api from "../../../services/API/api";
@@ -231,6 +233,15 @@ export default function PackagingRuleManager() {
   const selectedTemplateId = Form.useWatch("label_template_id", form);
 
 
+  const [workerModalOpen, setWorkerModalOpen] = useState(false);
+  const [selectedWorkerRule, setSelectedWorkerRule] = useState(null);
+  const [workers, setWorkers] = useState([]);
+  const [workersLoading, setWorkersLoading] = useState(false);
+  const [workerCreating, setWorkerCreating] = useState(false);
+  const [workerUsername, setWorkerUsername] = useState("");
+  const [workerPassword, setWorkerPassword] = useState("");
+
+
 
   // Barcode value-rule segments, kept as local state and merged into the
   // payload on submit — easier to manage per-row conditional fields here
@@ -254,11 +265,26 @@ export default function PackagingRuleManager() {
     queryFn: async () => (await api.get("/printers")).data,
   });
 
-  const { data: allStages = [] } = useQuery({
+  const { data: allStages = [], isLoading: stagesLoading } = useQuery({
     queryKey: ["product-stage-flow", selectedProductId],
-    queryFn: async () => (await api.get(`/product-stage-flow/${selectedProductId}`)).data,
+    queryFn: async () => {
+      const response = await api.get("/product-stage-flow/all");
+      const data = response.data;
+
+      const flows = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.data)
+          ? data.data
+          : [];
+
+      return flows.filter(
+        (stage) => Number(stage.product_id) === Number(selectedProductId)
+      );
+    },
     enabled: !!selectedProductId,
   });
+
+  console.log("PACKAGING RULE MANAGER DEBUG STAGES", allStages)
 
   // Label templates for the box label — this component only ever deals with
   // BOX_LABEL, so the type is hardcoded in the request, not a user-facing field.
@@ -368,7 +394,7 @@ export default function PackagingRuleManager() {
   const openCreateModal = () => {
     setEditingRecord(null);
     form.resetFields();
-    form.setFieldsValue({ is_active: true });
+    form.setFieldsValue({is_active: true, allow_partial_close: false});
     setSegments([
       EMPTY_SEGMENT("STATIC"),
       EMPTY_SEGMENT("DATE"),
@@ -387,6 +413,7 @@ export default function PackagingRuleManager() {
       barcode_format: record.barcode_format,
       label_template_id: record.label_template_id ?? undefined,
       is_active: !!record.is_active,
+      allow_partial_close: !!record.allow_partial_close,
     });
     // barcode_rule comes back from the server as the segments array —
     // fall back to a sensible default if this record predates the rule builder.
@@ -419,6 +446,87 @@ export default function PackagingRuleManager() {
     saveMutation.mutate({ ...values, barcode_rule: segments });
   };
 
+  const openWorkerModal = async (record) => {
+  setSelectedWorkerRule(record);
+  setWorkerModalOpen(true);
+  setWorkers([]);
+  setWorkersLoading(true);
+
+  try {
+    const response = await api.get(
+      `/packaging-config/${record.id}/workers`
+    );
+    setWorkers(response.data.data || []);
+  } catch (err) {
+    message.error(
+      err?.response?.data?.message || "Failed to load workers"
+    );
+  } finally {
+    setWorkersLoading(false);
+  }
+};
+
+const createWorker = async () => {
+  const username = workerUsername.trim();
+
+  if (!username || !workerPassword) {
+    message.warning("Enter a username and password");
+    return;
+  }
+
+  if (workerPassword.length < 8 || workerPassword.length > 72) {
+    message.warning("Password must be between 8 and 72 characters");
+    return;
+  }
+
+  setWorkerCreating(true);
+
+  try {
+    await api.post(
+      `/packaging-config/${selectedWorkerRule.id}/workers`,
+      {
+        username,
+        password: workerPassword,
+      }
+    );
+
+    message.success("Worker created successfully");
+    setWorkerUsername("");
+    setWorkerPassword("");
+
+    const response = await api.get(
+      `/packaging-config/${selectedWorkerRule.id}/workers`
+    );
+    setWorkers(response.data.data || []);
+  } catch (err) {
+    message.error(
+      err?.response?.data?.message || "Failed to create worker"
+    );
+  } finally {
+    setWorkerCreating(false);
+  }
+};
+
+const toggleWorkerStatus = async (worker) => {
+  try {
+    await api.patch(
+      `/packaging-config/${selectedWorkerRule.id}/workers/${worker.id}`,
+      { is_active: !Boolean(Number(worker.is_active)) }
+    );
+
+    message.success("Worker status updated");
+
+    const response = await api.get(
+      `/packaging-config/${selectedWorkerRule.id}/workers`
+    );
+    setWorkers(response.data.data || []);
+  } catch (err) {
+    message.error(
+      err?.response?.data?.message || "Failed to update worker"
+    );
+  }
+};
+
   // ---- table ----
   const filteredRules = useMemo(() => {
     if (!search) return rules;
@@ -444,6 +552,15 @@ export default function PackagingRuleManager() {
     {
       title: "Box Size",
       dataIndex: "box_size",
+    },
+    {
+      title: "Partial Closure",
+      dataIndex: "allow_partial_close",
+      render: (value) => (
+        <Tag color={value ? "green" : "default"}>
+          {value ? "Allowed" : "Disabled"}
+        </Tag>
+      ),
     },
     {
       title: "Printer",
@@ -486,6 +603,13 @@ export default function PackagingRuleManager() {
       render: (_, record) => (
         <Space>
           <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
+          <Button
+            size="small"
+            onClick={() => openWorkerModal(record)}
+            disabled={!Number(record.allow_partial_close)}
+          >
+            Manage Workers
+          </Button>
           <Popconfirm title="Delete this packaging rule?" onConfirm={() => {
             deleteMutation.mutate(record.id)}}>
             <Button size="small" danger icon={<DeleteOutlined />} />
@@ -497,6 +621,7 @@ export default function PackagingRuleManager() {
 
   return (
     <div style={{ padding: 20, background: "#F9FAFB", minHeight: "100vh" }}>
+
       <MasterHeader title="Packaging Rules" subtitle="Configure box size, printer & barcode format per product stage" />
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
         <div style={{ flex: 1 }}>
@@ -515,6 +640,116 @@ export default function PackagingRuleManager() {
         onDelete={deleteMutation.mutate}
         rowKey="id"
       />
+
+      
+      <Modal
+        title={`Manage Workers${selectedWorkerRule ? ` — Rule ${selectedWorkerRule.id}` : ""}`}
+        open={workerModalOpen}
+        onCancel={() => {
+          setWorkerModalOpen(false);
+          setSelectedWorkerRule(null);
+          setWorkerUsername("");
+          setWorkerPassword("");
+        }}
+        footer={null}
+        width={700}
+        destroyOnClose
+      >
+        {selectedWorkerRule && (
+          <>
+            {!Number(selectedWorkerRule.allow_partial_close) && (
+              <div style={{ marginBottom: 16 }}>
+                <Tag color="warning">
+                  Enable partial closure in the packaging rule first.
+                </Tag>
+              </div>
+            )}
+
+            <Card size="small" title="Create Worker" style={{ marginBottom: 20 }}>
+              <Space direction="vertical" style={{ width: "100%" }} size={12}>
+                <Input
+                  placeholder="Worker username"
+                  maxLength={100}
+                  value={workerUsername}
+                  onChange={(e) => setWorkerUsername(e.target.value)}
+                  autoComplete="off"
+                />
+
+                <Input.Password
+                  placeholder="Worker password (8–72 characters)"
+                  maxLength={72}
+                  value={workerPassword}
+                  onChange={(e) => setWorkerPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+
+                <Button
+                  type="primary"
+                  onClick={createWorker}
+                  loading={workerCreating}
+                  disabled={
+                    !Number(selectedWorkerRule.allow_partial_close)
+                  }
+                >
+                  Create Worker
+                </Button>
+              </Space>
+            </Card>
+
+            <Typography.Title level={5}>Registered Workers</Typography.Title>
+
+            <Table
+              rowKey="id"
+              size="small"
+              loading={workersLoading}
+              dataSource={workers}
+              pagination={{ pageSize: 5 }}
+              columns={[
+                {
+                  title: "Username",
+                  dataIndex: "username",
+                  key: "username",
+                },
+                {
+                  title: "Status",
+                  dataIndex: "is_active",
+                  key: "status",
+                  render: (value) =>
+                    Number(value) === 1 ? (
+                      <Tag color="green">Active</Tag>
+                    ) : (
+                      <Tag color="red">Inactive</Tag>
+                    ),
+                },
+                {
+                  title: "Action",
+                  key: "action",
+                  render: (_, worker) => (
+                    <Popconfirm
+                      title={`${
+                        Number(worker.is_active) === 1
+                          ? "Deactivate"
+                          : "Activate"
+                      } this worker?`}
+                      onConfirm={() => toggleWorkerStatus(worker)}
+                    >
+                      <Button
+                        size="small"
+                        danger={Number(worker.is_active) === 1}
+                        disabled={!Number(selectedWorkerRule.allow_partial_close)}
+                      >
+                        {Number(worker.is_active) === 1
+                          ? "Deactivate"
+                          : "Activate"}
+                      </Button>
+                    </Popconfirm>
+                  ),
+                },
+              ]}
+            />
+          </>
+        )}
+      </Modal>
 
       <MasterFormModal
         open={modalOpen}
@@ -544,10 +779,14 @@ export default function PackagingRuleManager() {
             label="Packaging Stage"
             rules={[{ required: true, message: "Please select packaging stage" }]}
           >
-            <Select placeholder="Select packaging stage">
-              {allStages?.map((stage) => (
+            <Select
+              placeholder="Select packaging stage"
+              loading={stagesLoading}
+              notFoundContent={stagesLoading ? "Loading stages..." : "No stages configured for this product"}
+            >
+              {allStages.map((stage) => (
                 <Select.Option key={stage.stage_id} value={stage.stage_id}>
-                  {stage.stage_name || stage.name}
+                  {stage.stage_name || stage.name || `Stage ${stage.stage_id}`}
                 </Select.Option>
               ))}
             </Select>
@@ -559,6 +798,15 @@ export default function PackagingRuleManager() {
             rules={[{ required: true, message: "Box size is required" }]}
           >
             <InputNumber min={1} style={{ width: "100%" }} placeholder="e.g. 24" />
+          </Form.Item>
+
+          <Form.Item
+            name="allow_partial_close"
+            label="Allow Partial Box Closure"
+            valuePropName="checked"
+            initialValue={false}
+          >
+            <Switch checkedChildren="Allowed" unCheckedChildren="Disabled" />
           </Form.Item>
 
           <Form.Item
@@ -646,6 +894,8 @@ export default function PackagingRuleManager() {
               </Text>
             </Card>
           </Form.Item>
+
+          
 
           <Form.Item name="is_active" label="Active" valuePropName="checked">
             <Switch />
