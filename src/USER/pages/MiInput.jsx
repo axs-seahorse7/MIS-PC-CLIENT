@@ -23,7 +23,7 @@ import useKeepWipFocus from "../hooks/useKeepWipFocus";
 
 export default function MIInput() {
   const { user } = useAuth();
-  const { products, productsLoading } = useProducts();
+  const { products, orders, productsLoading } = useProducts();
   const productionForm = useProductionForm({ user });
   const stageFlowApi = useStageFlow({ productId: productionForm.form.productId, user });
   const recentScansApi = useRecentScans({ user, productId: productionForm.form.productId });
@@ -98,6 +98,9 @@ export default function MIInput() {
                 isEditable={productionForm.isEditable}
                 mode={productionForm.mode}
                 products={products}
+                orders={orders}
+                selectedOrderId={productionForm.form.productionOrderId}
+                onSelectOrder={productionForm.handleOrderSelect}
                 productsLoading={productsLoading}
                 selected={productionForm.selected}
                 onSelectProduct={(productId) => productionForm.handleErpSelect(productId, products)}

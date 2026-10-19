@@ -229,9 +229,11 @@ const ProductStage = () => {
 
   const openEditModal = (record) => {
     setEditingRecord(record);
+    setSelectedLineId(record.lineId);
     form.setFieldsValue({
       productId: record.productId,
       stageId: record.stageId,
+      lineId: record.lineId,
       sequenceNo: record.sequenceNo,
       scanMode: record.scanMode,
       isExternalDependency: record.isExternalDependency,

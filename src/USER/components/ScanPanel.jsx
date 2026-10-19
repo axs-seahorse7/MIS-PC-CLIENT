@@ -22,6 +22,9 @@ export default function ScanPanel({
   isEditable,
   mode,
   products,
+  orders,
+  selectedOrderId,
+  onSelectOrder,
   productsLoading,
   selected,
   onSelectProduct,
@@ -83,6 +86,37 @@ const wipReady = !!form.productId && mode === "view" && !form.wipBarCode;
           onChange={onSelectProduct}
         />
       </div>
+
+      
+      <div>
+        <FieldLabel text="Select running production order" />
+        <Select
+          style={{ width: "100%" }}
+          placeholder={
+            !form.productId
+              ? "Select a product first"
+              : "Select production order..."
+          }
+          value={selectedOrderId ?? undefined}
+          disabled={!isEditable || !form.productId}
+          showSearch
+          optionFilterProp="label"
+          options={orders
+            .filter(
+              (order) =>
+                Number(order.product_id) === Number(form.productId)
+            )
+            .map((order) => ({
+              value: Number(order.production_order_id),
+              label:
+                `${order.production_order_no} — ` +
+                `Target: ${order.target_qty}, ` +
+                `Remaining: ${order.remaining_qty}`,
+            }))}
+          onChange={onSelectOrder}
+        />
+      </div>
+
 
       <div>
       <FieldLabel text="WIP Bar Code"  />
