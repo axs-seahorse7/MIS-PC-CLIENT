@@ -23,10 +23,13 @@ import useKeepWipFocus from "../hooks/useKeepWipFocus";
 
 export default function MIInput() {
   const { user } = useAuth();
+  console.log("MIInput: user:", user);
   const { products, orders, productsLoading } = useProducts();
   const productionForm = useProductionForm({ user });
   const stageFlowApi = useStageFlow({ productId: productionForm.form.productId, user });
   const recentScansApi = useRecentScans({ user, productId: productionForm.form.productId });
+
+ 
 
   
   const printer = usePrinterSelection({
@@ -51,6 +54,21 @@ export default function MIInput() {
 
   useKeepWipFocus(scan.wipCodeRef);
 
+  const selectedOrder = orders.find((order) =>
+      Number(order.production_order_id) ===
+      Number(productionForm.form.productionOrderId)
+  ) || null;
+
+
+   console.log("HEADER PO DEBUG", {
+  productionOrderId: productionForm.form.productionOrderId,
+  orders: orders.map((order) => ({
+    id: order.production_order_id,
+    orderNo: order.production_order_no,
+  })),
+  selectedOrder,
+});
+
   return (
     <div
       style={{
@@ -66,6 +84,7 @@ export default function MIInput() {
 
       <ActionBar
         selected={productionForm.selected}
+        selectedOrder={selectedOrder}
         mode={productionForm.mode}
         onNew={productionForm.handleNew}
         onEdit={productionForm.handleEdit}

@@ -53,10 +53,12 @@ const ORDER_STATUS_STYLE = {
 };
 const ORDER_STATUS_DEFAULT = { color: "orange", backgroundColor: "#fef3c7" };
 
-export default function ActionBar({ selected, mode, onNew, onEdit, onSave, onCancel }) {
+export default function ActionBar({ selected, selectedOrder, mode, onNew, onEdit, onSave, onCancel }) {
   const isEditable = mode === "new" || mode === "edit";
-  const statusStyle = ORDER_STATUS_STYLE[selected?.production_order_status] || ORDER_STATUS_DEFAULT;
+  const statusStyle = ORDER_STATUS_STYLE[selectedOrder?.production_order_status] ||ORDER_STATUS_DEFAULT;
 
+  console.log("ActionBar: selectedOrder:", selectedOrder);
+  console.log("ActionBar: statusStyle:", statusStyle);
   return (
     <div
       style={{
@@ -76,26 +78,31 @@ export default function ActionBar({ selected, mode, onNew, onEdit, onSave, onCan
       <Space size={8}>
         <Title level={5} style={{ margin: 0, color: "#1b2430" }}>
           Production Order:{" "}
-          {selected?.production_order_no ? (
-            <span style={{ color: "green" }}>{selected.production_order_no}</span>
+          {selectedOrder?.production_order_no ? (
+            <span style={{ color: "green" }}>
+              {selectedOrder?.production_order_no || "Not Selected"}
+            </span>
           ) : (
             <span style={{ color: "orange" }}>Not Selected</span>
           )}
         </Title>
-        {selected?.production_order_status && (
+
+        {selectedOrder?.production_order_status && (
           <Tag
-            level={5}
-            variant="filled"
             style={{
               margin: 0,
-              color: statusStyle.color,
-              backgroundColor: statusStyle.backgroundColor,
+              color:
+                ORDER_STATUS_STYLE[selectedOrder.production_order_status]?.color ||
+                ORDER_STATUS_DEFAULT.color,
+              backgroundColor:
+                ORDER_STATUS_STYLE[selectedOrder.production_order_status]?.backgroundColor ||
+                ORDER_STATUS_DEFAULT.backgroundColor,
               borderRadius: 6,
               fontWeight: 600,
               padding: "2px 10px",
             }}
           >
-            {selected.production_order_status}
+            {selectedOrder.production_order_status}
           </Tag>
         )}
       </Space>

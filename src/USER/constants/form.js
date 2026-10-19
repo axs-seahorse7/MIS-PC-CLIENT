@@ -1,5 +1,7 @@
+
 export const EMPTY_FORM = {
   productId: null,
+  productionOrderId: null,
   erpNo: null,
   wipBarCode: "",
   itemPlanned: "",
@@ -13,10 +15,6 @@ export const EMPTY_FORM = {
   doneQty: 0,
 };
 
-// server-driven target/achievement snapshot — comes back on every scan
-// response (SINGLE / GROUP_CREATE / GROUP_SCAN / CUSTOMER_BINDING / Save
-// Group). Drives the PLAN / PRODUCTION / ACHIEVED / REMAINS % cards. All
-// read-only in the UI.
 export const EMPTY_STAGE_STATS = {
   targetQty: 0,
   achievedQty: 0,

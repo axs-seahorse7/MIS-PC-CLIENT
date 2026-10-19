@@ -351,6 +351,7 @@ const showErrorPopup = (popup) => {
       const res = await api.post("/scan-history/create", {
         scanned_value: code,
         product_id: form.productId,
+        production_order_id: form.productionOrderId,
       });
 
       const response = res?.data;
@@ -394,6 +395,7 @@ const showErrorPopup = (popup) => {
         scanned_value: pcbQr,
         customer_qr: customerQr,
         product_id: form.productId,
+        production_order_id: form.productionOrderId,
       });
 
       const response = res?.data || {};
@@ -444,6 +446,22 @@ const showErrorPopup = (popup) => {
       setForm((f) => ({ ...f, wipBarCode: "" }));   // ← add this
       showErrorPopup({ type: "ERROR", title: "Select ERP/SAP No First", message: msg });
       setTimeout(() => wipCodeRef.current?.focus(), 0);
+      return;
+    }
+
+    if (!form.productionOrderId) {
+      const msg = "Select a running production order for your line before scanning.";
+
+      setErrorMessage(msg);
+      setForm((f) => ({ ...f, wipBarCode: "" }));
+
+      showErrorPopup({
+        type: "ERROR",
+        title: "Select Production Order",
+        message: msg,
+      });
+
+      setTimeout(() => wipCodeRef.current?.focus(), 50);
       return;
     }
 

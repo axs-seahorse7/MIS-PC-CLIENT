@@ -59,7 +59,9 @@ export default function ScanPanel({
 }) {
   const scanMode = stageFlow?.scan_mode;
   const [wipFocused, setWipFocused] = useState(false);
-const wipReady = !!form.productId && mode === "view" && !form.wipBarCode;
+  const wipReady = !!form.productId && mode === "view" && !form.wipBarCode;
+
+
 
 
   return (
@@ -98,7 +100,7 @@ const wipReady = !!form.productId && mode === "view" && !form.wipBarCode;
               : "Select production order..."
           }
           value={selectedOrderId ?? undefined}
-          disabled={!isEditable || !form.productId}
+          disabled={!form.productId}
           showSearch
           optionFilterProp="label"
           options={orders
@@ -113,7 +115,7 @@ const wipReady = !!form.productId && mode === "view" && !form.wipBarCode;
                 `Target: ${order.target_qty}, ` +
                 `Remaining: ${order.remaining_qty}`,
             }))}
-          onChange={onSelectOrder}
+          onChange={(orderId) => onSelectOrder(orderId, orders)}
         />
       </div>
 
