@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Input, Select, Drawer, Descriptions, Modal, message, Spin, Pagination } from "antd";
-import { Search, Eye, Pencil, Trash2 } from "lucide-react";
+import { Input, Select, Drawer, Descriptions, Modal, message, Spin, Pagination, Empty } from "antd";
+import { Search, Eye, Pencil, Trash2, Package, ArrowLeft, ChevronRight, Plus } from "lucide-react";
 import dayjs from "dayjs";
 import api from "../../../services/API/api";
-import MasterHeader from "../Masters/components/MasterHeader";
 import MasterTable from "../Masters/components/MasterTable";
 import ProductionOrderFormModal from "./CreateProductionOrderModal.jsx";
 
@@ -12,16 +11,16 @@ import ProductionOrderFormModal from "./CreateProductionOrderModal.jsx";
 // ------------------------------------------------------------------
 const LIST_ENDPOINT = "/production-orders/all";
 
-// Configuration endpoint:
-// Returns ALL active products, independent of running production orders.
-// A Production Order requires a Product Serial Rule, but creating the
-// Serial Rule must NOT depend on a running Production Order.
+// Configuration endpoint: returns ALL active products, independent of
+// running production orders.
 const LIST_PRODUCTS_ENDPOINT = "/products/all-active-product";
 
 const DETAIL_ENDPOINT = (id) => `/production-orders/${id}`;
 const DELETE_ENDPOINT = (id) => `/production-orders/${id}`;
 const ITEMS_ENDPOINT = (id) => `/production-orders/${id}/items`;
 const TRANSITION_ENDPOINT = (id, action) => `/production-orders/${id}/${action}`;
+
+const ITEMS_PAGE_SIZE = 50;
 
 const STATUS_FILTER_OPTIONS = [
   { value: "All", label: "All Status" },
@@ -40,10 +39,8 @@ const STATUS_STYLES = {
   PAUSED: { bg: "#FFFBEB", text: "#D97706", dot: "#F59E0B" },
   COMPLETED: { bg: "#F0FDFA", text: "#0D9488", dot: "#14B8A6" },
   CANCELLED: { bg: "#FEF2F2", text: "#DC2626", dot: "#EF4444" },
-    REJECTED: { bg: "#FEF2F2", text: "#DC2626", dot: "#EF4444" },
+  REJECTED: { bg: "#FEF2F2", text: "#DC2626", dot: "#EF4444" },
 };
-
-
 
 const StatusPill = ({ status }) => {
   const style = STATUS_STYLES[status] || STATUS_STYLES.PLANNED;
@@ -85,13 +82,7 @@ const ACTION_TONES = {
   delete: { bg: "#FEF2F2", color: "#DC2626", border: "#FEE2E2" },
 };
 
-const ActionButton = ({
-  label,
-  icon: Icon,
-  tone = "neutral",
-  onClick,
-  title,
-}) => {
+const ActionButton = ({ label, icon: Icon, tone = "neutral", onClick, title }) => {
   const style = ACTION_TONES[tone];
   const iconOnly = Icon && !label;
 
@@ -122,32 +113,61 @@ const ActionButton = ({
   );
 };
 
-const DATA_COLUMN_COUNT = 7;
+const PrimaryButton = ({ onClick, children }) => (
+  <button
+    onClick={onClick}
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      height: 36,
+      padding: "0 14px",
+      borderRadius: 9,
+      border: "none",
+      background: "#2563EB",
+      color: "#fff",
+      fontSize: 13,
+      fontWeight: 600,
+      cursor: "pointer",
+    }}
+  >
+    <Plus size={15} />
+    {children}
+  </button>
+);
 
-const hideForGroup = () => ({
-  children: null,
-  props: { colSpan: 0 },
-});
+const COUNT_CHIPS = [
+  { key: "RUNNING", label: "Running" },
+  { key: "PLANNED", label: "Planned" },
+  { key: "PAUSED", label: "Paused" },
+  { key: "COMPLETED", label: "Done" },
+];
 
 const ProductionOrdersPage = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [products, setProducts] = useState([]);
 
+  // Step control: null => Step 1 (products), otherwise Step 2 (that product's POs)
+  const [selectedProductKey, setSelectedProductKey] = useState(null);
+
+  // Step 1 filter
+  const [productSearch, setProductSearch] = useState("");
+
+  // Step 2 filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [lineFilter, setLineFilter] = useState("All");
 
+  // Create / Edit modal
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState("create");
   const [editRecord, setEditRecord] = useState(null);
 
+  // View drawer
   const [viewDrawerOpen, setViewDrawerOpen] = useState(false);
   const [viewOrder, setViewOrder] = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
-  const [viewItems, setViewItems] = useState([]);
-
-  const [products, setProducts] = useState([]);
-  const ITEMS_PAGE_SIZE = 50;
-
   const [viewOrderId, setViewOrderId] = useState(null);
   const [itemsData, setItemsData] = useState({
     items: [],
@@ -162,41 +182,27 @@ const ProductionOrdersPage = () => {
   const [itemsLoading, setItemsLoading] = useState(false);
 
   // ----------------------------------------------------------------
-  // Fetch ALL active products for Production Order configuration.
-  // This is intentionally independent of running production orders.
+  // Fetch products (configuration, independent of production orders)
   // ----------------------------------------------------------------
   const fetchProducts = async () => {
     try {
       const res = await api.get(LIST_PRODUCTS_ENDPOINT);
-
-      const data = res?.data?.data || res?.data || [];
-
-
-      setProducts(data);
+      setProducts(res?.data?.data || res?.data || []);
     } catch (err) {
       console.error("ERR FETCHING CONFIGURABLE PRODUCTS:", err);
       message.error("Failed to load products");
     }
   };
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
-
   // ----------------------------------------------------------------
-  // Fetch Production Orders
+  // Fetch ALL production orders once. Step 1 needs them for counts,
+  // Step 2 filters them client-side (no refetch on each keystroke).
   // ----------------------------------------------------------------
   const fetchOrders = async () => {
     setLoading(true);
 
     try {
-      const res = await api.get(LIST_ENDPOINT, {
-        params: {
-          search: search.trim() || undefined,
-          status: statusFilter !== "All" ? statusFilter : undefined,
-        },
-      });
-
+      const res = await api.get(LIST_ENDPOINT);
       setOrders(res?.data?.data || res?.data || []);
     } catch (err) {
       message.error("Failed to load production orders");
@@ -206,57 +212,127 @@ const ProductionOrdersPage = () => {
   };
 
   useEffect(() => {
-    const timer = setTimeout(fetchOrders, 350);
-
-    return () => clearTimeout(timer);
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter]);
+    fetchProducts();
+    fetchOrders();
+  }, []);
 
   // ----------------------------------------------------------------
-  // Product lookup
+  // Build product cards (all active products + any product that only
+  // appears on orders), with order stats.
   // ----------------------------------------------------------------
-  const productsById = useMemo(() => {
+  const productCards = useMemo(() => {
     const map = new Map();
 
     products.forEach((p) => {
-      map.set(p.id, p);
+      map.set(p.id, {
+        key: p.id,
+        product_id: p.id,
+        name: p.name,
+        erp_no: p.erp_no,
+        orders: [],
+      });
     });
 
-    return map;
-  }, [products]);
+    orders.forEach((o) => {
+      const key = o.product_id ?? "unassigned";
 
-  // ----------------------------------------------------------------
-  // Group orders by Product
-  // ----------------------------------------------------------------
-  const groupedOrders = useMemo(() => {
-    const groups = new Map();
-
-    orders.forEach((order) => {
-      const key = order.product_id ?? "unassigned";
-      const canonicalProduct = productsById.get(order.product_id);
-
-      if (!groups.has(key)) {
-        groups.set(key, {
-          id: `group-${key}`,
-          isGroup: true,
-          product_id: order.product_id,
-          product_name:
-            canonicalProduct?.name ||
-            order.product_name ||
-            "Unassigned Product",
-          product_erp_no:
-            canonicalProduct?.erp_no ||
-            order.product_erp_no,
-          children: [],
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          product_id: o.product_id,
+          name: o.product_name || "Unassigned Product",
+          erp_no: o.product_erp_no,
+          orders: [],
         });
       }
 
-      groups.get(key).children.push(order);
+      map.get(key).orders.push(o);
     });
 
-    return Array.from(groups.values());
-  }, [orders, productsById]);
+    return Array.from(map.values()).map((c) => {
+      const counts = {};
+      let totalQty = 0;
+
+      c.orders.forEach((o) => {
+        counts[o.status] = (counts[o.status] || 0) + 1;
+        totalQty += Number(o.target_qty) || 0;
+      });
+
+      return { ...c, counts, totalQty };
+    });
+  }, [products, orders]);
+
+  const visibleProductCards = useMemo(() => {
+    const q = productSearch.trim().toLowerCase();
+
+    return productCards
+      .filter(
+        (c) =>
+          !q ||
+          (c.name || "").toLowerCase().includes(q) ||
+          String(c.erp_no || "").toLowerCase().includes(q)
+      )
+      .sort((a, b) => {
+        // products with running orders first, then with orders, then by name
+        const ar = a.counts.RUNNING || 0;
+        const br = b.counts.RUNNING || 0;
+        if (ar !== br) return br - ar;
+        if (a.orders.length !== b.orders.length) return b.orders.length - a.orders.length;
+        return (a.name || "").localeCompare(b.name || "");
+      });
+  }, [productCards, productSearch]);
+
+  const selectedProduct = useMemo(
+    () => productCards.find((c) => c.key === selectedProductKey) || null,
+    [productCards, selectedProductKey]
+  );
+
+  // ----------------------------------------------------------------
+  // Step 2 data: this product's orders + filters
+  // ----------------------------------------------------------------
+  const lineOptions = useMemo(() => {
+    if (!selectedProduct) return [{ value: "All", label: "All Lines" }];
+
+    const lines = Array.from(
+      new Set(selectedProduct.orders.map((o) => o.line_name).filter(Boolean))
+    ).sort();
+
+    return [
+      { value: "All", label: "All Lines" },
+      ...lines.map((l) => ({ value: l, label: l })),
+    ];
+  }, [selectedProduct]);
+
+  const filteredOrders = useMemo(() => {
+    if (!selectedProduct) return [];
+
+    const q = search.trim().toLowerCase();
+
+    return selectedProduct.orders.filter((o) => {
+      if (statusFilter !== "All" && o.status !== statusFilter) return false;
+      if (lineFilter !== "All" && o.line_name !== lineFilter) return false;
+      if (q && !String(o.order_no || "").toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [selectedProduct, search, statusFilter, lineFilter]);
+
+  const filtersActive = search.trim() || statusFilter !== "All" || lineFilter !== "All";
+
+  const resetFilters = () => {
+    setSearch("");
+    setStatusFilter("All");
+    setLineFilter("All");
+  };
+
+  const openProduct = (card) => {
+    resetFilters();
+    setSelectedProductKey(card.key);
+  };
+
+  const backToProducts = () => {
+    resetFilters();
+    setSelectedProductKey(null);
+  };
 
   // ----------------------------------------------------------------
   // Create / Edit
@@ -281,7 +357,7 @@ const ProductionOrdersPage = () => {
   // ----------------------------------------------------------------
   // View
   // ----------------------------------------------------------------
-   const loadItems = async (orderId, page = 1, status = "ALL", search = "") => {
+  const loadItems = async (orderId, page = 1, status = "ALL", itemSearch = "") => {
     setItemsLoading(true);
 
     try {
@@ -290,12 +366,18 @@ const ProductionOrdersPage = () => {
           page,
           pageSize: ITEMS_PAGE_SIZE,
           status: status !== "ALL" ? status : undefined,
-          search: search.trim() || undefined,
+          search: itemSearch.trim() || undefined,
         },
       });
 
       setItemsData(
-        res?.data?.data || { items: [], total: 0, summary: {}, first_serial: null, last_serial: null }
+        res?.data?.data || {
+          items: [],
+          total: 0,
+          summary: {},
+          first_serial: null,
+          last_serial: null,
+        }
       );
       setItemsPage(page);
     } catch (err) {
@@ -332,7 +414,7 @@ const ProductionOrdersPage = () => {
   };
 
   // ----------------------------------------------------------------
-  // Start / Pause / Resume
+  // Start / Pause / Resume / Cancel / Delete
   // ----------------------------------------------------------------
   const TRANSITION_LABELS = {
     start: "started",
@@ -343,23 +425,13 @@ const ProductionOrdersPage = () => {
   const handleTransition = async (record, action) => {
     try {
       await api.patch(TRANSITION_ENDPOINT(record.id, action));
-
-      message.success(
-        `Order ${TRANSITION_LABELS[action] || "updated"}`
-      );
-
+      message.success(`Order ${TRANSITION_LABELS[action] || "updated"}`);
       fetchOrders();
     } catch (err) {
-      message.error(
-        err?.response?.data?.message ||
-          `Failed to ${action} order`
-      );
+      message.error(err?.response?.data?.message || `Failed to ${action} order`);
     }
   };
 
-  // ----------------------------------------------------------------
-  // Cancel
-  // ----------------------------------------------------------------
   const handleCancel = (record) => {
     Modal.confirm({
       title: "Cancel production order?",
@@ -370,26 +442,16 @@ const ProductionOrdersPage = () => {
 
       onOk: async () => {
         try {
-          await api.patch(
-            TRANSITION_ENDPOINT(record.id, "cancel")
-          );
-
+          await api.patch(TRANSITION_ENDPOINT(record.id, "cancel"));
           message.success("Production order cancelled");
-
           fetchOrders();
         } catch (err) {
-          message.error(
-            err?.response?.data?.message ||
-              "Failed to cancel order"
-          );
+          message.error(err?.response?.data?.message || "Failed to cancel order");
         }
       },
     });
   };
 
-  // ----------------------------------------------------------------
-  // Delete
-  // ----------------------------------------------------------------
   const handleDelete = (record) => {
     Modal.confirm({
       title: "Delete production order?",
@@ -401,286 +463,377 @@ const ProductionOrdersPage = () => {
       onOk: async () => {
         try {
           await api.delete(DELETE_ENDPOINT(record.id));
-
           message.success("Production order deleted");
-
           fetchOrders();
         } catch (err) {
-          message.error(
-            err?.response?.data?.message ||
-              "Failed to delete order"
-          );
+          message.error(err?.response?.data?.message || "Failed to delete order");
         }
       },
     });
   };
 
   // ----------------------------------------------------------------
-  // Actions
+  // Row actions
   //
-  // Product QR printing is intentionally NOT here anymore.
-  //
-  // Product QR identities are generated before Production Orders.
-  // Production Order only assigns existing Product QR identities
-  // from the QR pool to a line-specific production job.
+  // Product QR printing is intentionally NOT here. Product QR identities
+  // are generated before Production Orders; a Production Order only
+  // assigns existing identities from the QR pool to a line-specific job.
   // ----------------------------------------------------------------
   const renderActions = (record) => {
     const buttons = [
-      <ActionButton
-        key="view"
-        icon={Eye}
-        title="View"
-        onClick={() => handleView(record)}
-      />,
+      <ActionButton key="view" icon={Eye} title="View" onClick={() => handleView(record)} />,
     ];
 
     if (record.status === "PLANNED") {
       buttons.push(
-        <ActionButton
-          key="edit"
-          icon={Pencil}
-          tone="edit"
-          title="Edit"
-          onClick={() => openEdit(record)}
-        />,
-        <ActionButton
-          key="start"
-          label="Start"
-          tone="start"
-          onClick={() =>
-            handleTransition(record, "start")
-          }
-        />,
-        <ActionButton
-          key="delete"
-          icon={Trash2}
-          tone="delete"
-          title="Delete"
-          onClick={() =>
-            handleDelete(record)
-          }
-        />
+        <ActionButton key="edit" icon={Pencil} tone="edit" title="Edit" onClick={() => openEdit(record)} />,
+        <ActionButton key="start" label="Start" tone="start" onClick={() => handleTransition(record, "start")} />,
+        <ActionButton key="delete" icon={Trash2} tone="delete" title="Delete" onClick={() => handleDelete(record)} />
       );
     } else if (record.status === "RUNNING") {
       buttons.push(
-        <ActionButton
-          key="pause"
-          label="Pause"
-          tone="pause"
-          onClick={() =>
-            handleTransition(record, "pause")
-          }
-        />,
-        <ActionButton
-          key="cancel"
-          label="Cancel"
-          tone="cancel"
-          onClick={() =>
-            handleCancel(record)
-          }
-        />
+        <ActionButton key="pause" label="Pause" tone="pause" onClick={() => handleTransition(record, "pause")} />,
+        <ActionButton key="cancel" label="Cancel" tone="cancel" onClick={() => handleCancel(record)} />
       );
     } else if (record.status === "PAUSED") {
       buttons.push(
-        <ActionButton
-          key="resume"
-          label="Resume"
-          tone="resume"
-          onClick={() =>
-            handleTransition(record, "resume")
-          }
-        />,
-        <ActionButton
-          key="cancel"
-          label="Cancel"
-          tone="cancel"
-          onClick={() =>
-            handleCancel(record)
-          }
-        />
+        <ActionButton key="resume" label="Resume" tone="resume" onClick={() => handleTransition(record, "resume")} />,
+        <ActionButton key="cancel" label="Cancel" tone="cancel" onClick={() => handleCancel(record)} />
       );
     } else if (record.status === "CANCELLED") {
       buttons.push(
-        <ActionButton
-          key="delete"
-          icon={Trash2}
-          tone="delete"
-          title="Delete"
-          onClick={() =>
-            handleDelete(record)
-          }
-        />
+        <ActionButton key="delete" icon={Trash2} tone="delete" title="Delete" onClick={() => handleDelete(record)} />
       );
     }
 
-    return (
-      <div
-        style={{
-          display: "flex",
-          gap: 6,
-        }}
-      >
-        {buttons}
-      </div>
-    );
+    return <div style={{ display: "flex", gap: 6 }}>{buttons}</div>;
   };
 
   // ----------------------------------------------------------------
-  // Table columns
+  // Step 2 table columns (Product column dropped: it's in the header)
   // ----------------------------------------------------------------
   const columns = [
-    {
-      title: "Order No",
-      dataIndex: "order_no",
-      key: "order_no",
-
-      render: (v, r) => {
-        if (r.isGroup) {
-          const runningCount = r.children.filter(
-            (o) => o.status === "RUNNING"
-          ).length;
-
-          return {
-            children: (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <span
-                  style={{
-                    fontWeight: 700,
-                    color: "#0F172A",
-                    fontSize: 13.5,
-                  }}
-                >
-                  {r.product_name}
-                  {r.product_erp_no
-                    ? ` (${r.product_erp_no})`
-                    : ""}
-                </span>
-
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: "#2563EB",
-                    background: "#EFF6FF",
-                    borderRadius: 20,
-                    padding: "2px 10px",
-                  }}
-                >
-                  {r.children.length} order
-                  {r.children.length > 1 ? "s" : ""}
-                </span>
-
-                {runningCount > 0 && (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: "#16A34A",
-                      background: "#ECFDF5",
-                      borderRadius: 20,
-                      padding: "2px 10px",
-                    }}
-                  >
-                    {runningCount} running
-                  </span>
-                )}
-              </div>
-            ),
-
-            props: {
-              colSpan: DATA_COLUMN_COUNT,
-            },
-          };
-        }
-
-        return v;
-      },
-    },
-
-    {
-      title: "Product",
-      key: "product",
-
-      render: (_, r) => {
-        if (r.isGroup) return hideForGroup();
-
-        return r.product_name
-          ? `${r.product_name}${
-              r.product_erp_no
-                ? ` (${r.product_erp_no})`
-                : ""
-            }`
-          : "—";
-      },
-    },
-
-    {
-      title: "Line",
-      dataIndex: "line_name",
-      key: "line_name",
-
-      render: (v, r) =>
-        r.isGroup ? hideForGroup() : v || "—",
-    },
-
-    {
-      title: "Target Qty",
-      dataIndex: "target_qty",
-      key: "target_qty",
-
-      render: (v, r) =>
-        r.isGroup ? hideForGroup() : v,
-    },
-
-    {
-      title: "Sequence",
-      dataIndex: "sequence_mode",
-      key: "sequence_mode",
-
-      render: (v, r) =>
-        r.isGroup ? hideForGroup() : v,
-    },
-
+    { title: "Order No", dataIndex: "order_no", key: "order_no" },
+    { title: "Line", dataIndex: "line_name", key: "line_name", render: (v) => v || "—" },
+    { title: "Target Qty", dataIndex: "target_qty", key: "target_qty" },
+    { title: "Sequence", dataIndex: "sequence_mode", key: "sequence_mode" },
     {
       title: "Status",
       key: "status",
-
-      render: (_, r) =>
-        r.isGroup
-          ? hideForGroup()
-          : <StatusPill status={r.status} />,
+      render: (_, r) => <StatusPill status={r.status} />,
     },
-
     {
       title: "Planned Date",
       dataIndex: "planned_date",
       key: "planned_date",
-
-      render: (v, r) =>
-        r.isGroup
-          ? hideForGroup()
-          : v
-            ? dayjs(v).format("DD MMM YYYY")
-            : "—",
+      render: (v) => (v ? dayjs(v).format("DD MMM YYYY") : "—"),
     },
-
     {
       title: "Actions",
       key: "actions",
       width: 190,
-
-      render: (_, r) =>
-        r.isGroup
-          ? hideForGroup()
-          : renderActions(r),
+      render: (_, r) => renderActions(r),
     },
   ];
+
+  // ----------------------------------------------------------------
+  // Step 1: product cards
+  // ----------------------------------------------------------------
+  const renderProductStep = () => (
+    <>
+      <div style={{ padding: "20px 20px 0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#0F172A" }}>Production Orders</div>
+            <div style={{ fontSize: 13, color: "#64748B", marginTop: 2 }}>
+              Select a product to view and manage its production orders
+            </div>
+          </div>
+
+          <PrimaryButton onClick={openCreate}>New Production Order</PrimaryButton>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "14px 20px",
+          marginTop: 16,
+          borderTop: "1px solid #F1F5F9",
+          borderBottom: "1px solid #F1F5F9",
+          background: "#FBFCFD",
+        }}
+      >
+        <Input
+          placeholder="Search product or ERP no..."
+          prefix={<Search size={15} color="#94A3B8" />}
+          value={productSearch}
+          onChange={(e) => setProductSearch(e.target.value)}
+          style={{ maxWidth: 300, borderRadius: 10, fontSize: 13 }}
+          allowClear
+        />
+        <span style={{ fontSize: 12, color: "#64748B" }}>
+          {visibleProductCards.length} product{visibleProductCards.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <Spin spinning={loading}>
+        <div style={{ padding: 20, minHeight: 200 }}>
+          {visibleProductCards.length === 0 && !loading ? (
+            <Empty description="No products found" />
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                gap: 16,
+              }}
+            >
+              {visibleProductCards.map((card) => {
+                const running = card.counts.RUNNING || 0;
+
+                return (
+                  <div
+                    key={card.key}
+                    className="po-product-card"
+                    onClick={() => openProduct(card)}
+                    style={{
+                      border: "1px solid #E2E8F0",
+                      borderRadius: 12,
+                      padding: 16,
+                      background: "#fff",
+                      cursor: "pointer",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 14,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 10,
+                          background: "#EFF6FF",
+                          color: "#2563EB",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Package size={20} />
+                      </div>
+
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            fontSize: 14,
+                            color: "#0F172A",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={card.name}
+                        >
+                          {card.name}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+                          {card.erp_no ? `ERP ${card.erp_no}` : "No ERP no."}
+                        </div>
+                      </div>
+
+                      <ChevronRight size={18} color="#94A3B8" />
+                    </div>
+
+                    <div style={{ display: "flex", gap: 24 }}>
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: "#0F172A", lineHeight: 1.1 }}>
+                          {card.orders.length}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: "#64748B", marginTop: 2 }}>Orders</div>
+                      </div>
+
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: "#0F172A", lineHeight: 1.1 }}>
+                          {card.totalQty.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: "#64748B", marginTop: 2 }}>Total target qty</div>
+                      </div>
+
+                      {running > 0 && (
+                        <div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: "#16A34A", lineHeight: 1.1 }}>
+                            {running}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: "#64748B", marginTop: 2 }}>Running</div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minHeight: 22 }}>
+                      {card.orders.length === 0 ? (
+                        <span style={{ fontSize: 12, color: "#94A3B8" }}>No production orders yet</span>
+                      ) : (
+                        COUNT_CHIPS.filter((c) => card.counts[c.key]).map((c) => {
+                          const s = STATUS_STYLES[c.key];
+                          return (
+                            <span
+                              key={c.key}
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                padding: "2px 9px",
+                                borderRadius: 20,
+                                background: s.bg,
+                                color: s.text,
+                              }}
+                            >
+                              {card.counts[c.key]} {c.label}
+                            </span>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </Spin>
+    </>
+  );
+
+  // ----------------------------------------------------------------
+  // Step 2: selected product's orders
+  // ----------------------------------------------------------------
+  const renderOrdersStep = () => (
+    <>
+      <div style={{ padding: "20px 20px 0" }}>
+        <button
+          onClick={backToProducts}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            border: "none",
+            background: "transparent",
+            color: "#2563EB",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+            padding: 0,
+            marginBottom: 12,
+          }}
+        >
+          <ArrowLeft size={15} />
+          All products
+        </button>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 11,
+                background: "#EFF6FF",
+                color: "#2563EB",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Package size={22} />
+            </div>
+
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#0F172A" }}>
+                {selectedProduct?.name || "Product"}
+              </div>
+              <div style={{ fontSize: 13, color: "#64748B", marginTop: 2 }}>
+                {selectedProduct?.erp_no ? `ERP ${selectedProduct.erp_no} · ` : ""}
+                {selectedProduct?.orders.length ?? 0} production order
+                {(selectedProduct?.orders.length ?? 0) === 1 ? "" : "s"}
+              </div>
+            </div>
+          </div>
+
+          <PrimaryButton onClick={openCreate}>New Production Order</PrimaryButton>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "14px 20px",
+          marginTop: 16,
+          borderTop: "1px solid #F1F5F9",
+          borderBottom: "1px solid #F1F5F9",
+          background: "#FBFCFD",
+          flexWrap: "wrap",
+        }}
+      >
+        <Input
+          placeholder="Search by order no..."
+          prefix={<Search size={15} color="#94A3B8" />}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ maxWidth: 260, borderRadius: 10, fontSize: 13 }}
+          allowClear
+        />
+
+        <Select
+          value={statusFilter}
+          onChange={setStatusFilter}
+          style={{ width: 160 }}
+          options={STATUS_FILTER_OPTIONS}
+        />
+
+        <Select
+          value={lineFilter}
+          onChange={setLineFilter}
+          style={{ width: 160 }}
+          options={lineOptions}
+        />
+
+        {filtersActive && (
+          <button
+            onClick={resetFilters}
+            style={{
+              border: "none",
+              background: "transparent",
+              color: "#2563EB",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Clear filters
+          </button>
+        )}
+
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "#64748B" }}>
+          Showing {filteredOrders.length} of {selectedProduct?.orders.length ?? 0}
+        </span>
+      </div>
+
+      <div style={{ padding: "0 4px" }}>
+        <MasterTable
+          columns={columns}
+          data={filteredOrders}
+          loading={loading}
+          rowKey="id"
+        />
+      </div>
+    </>
+  );
 
   return (
     <div
@@ -691,82 +844,19 @@ const ProductionOrdersPage = () => {
       }}
     >
       <style>{`
-        .po-group-row > td {
-          background: #FAFBFD !important;
-          cursor: pointer;
+        .po-product-card {
+          transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
         }
-
-        .po-group-row:hover > td {
-          background: #F4F6F8 !important;
+        .po-product-card:hover {
+          border-color: #BFDBFE !important;
+          box-shadow: 0 6px 18px rgba(37, 99, 235, 0.08);
+          transform: translateY(-1px);
         }
       `}</style>
 
-      <div style={{ padding: "20px 20px 0" }}>
-        <MasterHeader
-          title="Production Orders"
-          description="Create and track production orders across lines"
-          buttonLabel="New Production Order"
-          onAddClick={openCreate}
-        />
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "14px 20px",
-          borderTop: "1px solid #F1F5F9",
-          borderBottom: "1px solid #F1F5F9",
-          background: "#FBFCFD",
-          flexWrap: "wrap",
-        }}
-      >
-        <Input
-          placeholder="Search by order no..."
-          prefix={
-            <Search
-              size={15}
-              color="#94A3B8"
-            />
-          }
-          value={search}
-          onChange={(e) =>
-            setSearch(e.target.value)
-          }
-          style={{
-            maxWidth: 260,
-            borderRadius: 10,
-            fontSize: 13,
-          }}
-          allowClear
-        />
-
-        <Select
-          value={statusFilter}
-          onChange={setStatusFilter}
-          style={{ width: 160 }}
-          options={STATUS_FILTER_OPTIONS}
-        />
-      </div>
-
-      <div style={{ padding: "0 4px" }}>
-        <MasterTable
-          columns={columns}
-          data={groupedOrders}
-          loading={loading}
-          rowKey="id"
-          rowClassName={(record) =>
-            record.isGroup
-              ? "po-group-row"
-              : ""
-          }
-          expandable={{
-            defaultExpandAllRows: false,
-            indentSize: 18,
-          }}
-        />
-      </div>
+      {selectedProductKey === null || !selectedProduct
+        ? renderProductStep()
+        : renderOrdersStep()}
 
       <ProductionOrderFormModal
         open={formOpen}
@@ -781,46 +871,27 @@ const ProductionOrdersPage = () => {
       />
 
       <Drawer
-        title={
-          viewOrder
-            ? `Order ${viewOrder.order_no}`
-            : "Production Order"
-        }
+        title={viewOrder ? `Order ${viewOrder.order_no}` : "Production Order"}
         open={viewDrawerOpen}
         onClose={closeViewDrawer}
         width={460}
       >
         {viewLoading ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: 40,
-            }}
-          >
+          <div style={{ textAlign: "center", padding: 40 }}>
             <Spin />
           </div>
         ) : (
           viewOrder && (
             <>
-              <Descriptions
-                column={1}
-                size="small"
-                bordered
-              >
+              <Descriptions column={1} size="small" bordered>
                 <Descriptions.Item label="Product">
                   {viewOrder.product_name}
-                  {viewOrder.product_erp_no
-                    ? ` (${viewOrder.product_erp_no})`
-                    : ""}
+                  {viewOrder.product_erp_no ? ` (${viewOrder.product_erp_no})` : ""}
                 </Descriptions.Item>
 
-                <Descriptions.Item label="Line">
-                  {viewOrder.line_name || "—"}
-                </Descriptions.Item>
+                <Descriptions.Item label="Line">{viewOrder.line_name || "—"}</Descriptions.Item>
 
-                <Descriptions.Item label="Target Qty">
-                  {viewOrder.target_qty}
-                </Descriptions.Item>
+                <Descriptions.Item label="Target Qty">{viewOrder.target_qty}</Descriptions.Item>
 
                 <Descriptions.Item label="Product QR">
                   <span style={{ wordBreak: "break-all", fontSize: 12 }}>
@@ -832,38 +903,22 @@ const ProductionOrdersPage = () => {
                   </span>
                 </Descriptions.Item>
 
-                <Descriptions.Item label="Sequence Mode">
-                  {viewOrder.sequence_mode}
-                </Descriptions.Item>
+                <Descriptions.Item label="Sequence Mode">{viewOrder.sequence_mode}</Descriptions.Item>
 
                 <Descriptions.Item label="Status">
-                  <StatusPill
-                    status={viewOrder.status}
-                  />
+                  <StatusPill status={viewOrder.status} />
                 </Descriptions.Item>
 
                 <Descriptions.Item label="Planned Date">
-                  {viewOrder.planned_date
-                    ? dayjs(
-                        viewOrder.planned_date
-                      ).format("DD MMM YYYY")
-                    : "—"}
+                  {viewOrder.planned_date ? dayjs(viewOrder.planned_date).format("DD MMM YYYY") : "—"}
                 </Descriptions.Item>
 
                 <Descriptions.Item label="QR Identities Assigned">
                   {viewOrder.item_count ?? "—"}
                 </Descriptions.Item>
-
               </Descriptions>
 
-              <div
-                style={{
-                  marginTop: 22,
-                  fontWeight: 700,
-                  fontSize: 13,
-                  color: "#0F172A",
-                }}
-              >
+              <div style={{ marginTop: 22, fontWeight: 700, fontSize: 13, color: "#0F172A" }}>
                 Serials to Scan
               </div>
 
@@ -873,8 +928,7 @@ const ProductionOrdersPage = () => {
                 {itemsData.summary.IN_PROGRESS ?? 0} in progress
                 {" · "}
                 {itemsData.summary.COMPLETED ?? 0} completed
-                {(itemsData.summary.REJECTED ?? 0) > 0 &&
-                  ` · ${itemsData.summary.REJECTED} rejected`}
+                {(itemsData.summary.REJECTED ?? 0) > 0 && ` · ${itemsData.summary.REJECTED} rejected`}
               </div>
 
               <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
@@ -914,9 +968,7 @@ const ProductionOrdersPage = () => {
                   }}
                 >
                   {itemsData.items.length === 0 ? (
-                    <div style={{ padding: 12, fontSize: 13, color: "#94A3B8" }}>
-                      No serials found
-                    </div>
+                    <div style={{ padding: 12, fontSize: 13, color: "#94A3B8" }}>No serials found</div>
                   ) : (
                     itemsData.items.map((item) => (
                       <div
@@ -951,88 +1003,34 @@ const ProductionOrdersPage = () => {
                 showSizeChanger={false}
                 hideOnSinglePage
                 style={{ marginTop: 10, textAlign: "right" }}
-                onChange={(page) =>
-                  loadItems(viewOrderId, page, itemsStatus, itemsSearch)
-                }
+                onChange={(page) => loadItems(viewOrderId, page, itemsStatus, itemsSearch)}
               />
 
-              <div
-                style={{
-                  marginTop: 8,
-                  maxHeight: 280,
-                  overflowY: "auto",
-                  border: "1px solid #F1F5F9",
-                  borderRadius: 8,
-                }}
-              >
-                {viewItems.length === 0 ? (
-                  <div style={{ padding: 12, fontSize: 13, color: "#94A3B8" }}>
-                    No serials assigned
-                  </div>
-                ) : (
-                  viewItems.map((item) => (
-                    <div
-                      key={item.serial_no}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 8,
-                        padding: "7px 12px",
-                        borderBottom: "1px solid #F1F5F9",
-                        fontSize: 12.5,
-                        color: "#334155",
-                      }}
-                    >
-                      <span style={{ wordBreak: "break-all" }}>
-                        {item.sequence_no}. {item.serial_no}
-                      </span>
-
-                      <StatusPill status={item.status} />
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div
-                style={{
-                  marginTop: 22,
-                  fontWeight: 700,
-                  fontSize: 13,
-                  color: "#0F172A",
-                }}
-              >
+              <div style={{ marginTop: 22, fontWeight: 700, fontSize: 13, color: "#0F172A" }}>
                 Stage Flow
               </div>
 
               <div style={{ marginTop: 8 }}>
-                {(viewOrder.stages || []).map(
-                  (stage) => (
-                    <div
-                      key={stage.id}
-                      style={{
-                        display: "flex",
-                        justifyContent:
-                          "space-between",
-                        alignItems: "center",
-                        padding: "8px 0",
-                        borderBottom:
-                          "1px solid #F1F5F9",
-                        fontSize: 13,
-                        color: "#334155",
-                      }}
-                    >
-                      <span>
-                        {stage.sequence_order}.{" "}
-                        {stage.stage_name}
-                      </span>
+                {(viewOrder.stages || []).map((stage) => (
+                  <div
+                    key={stage.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "8px 0",
+                      borderBottom: "1px solid #F1F5F9",
+                      fontSize: 13,
+                      color: "#334155",
+                    }}
+                  >
+                    <span>
+                      {stage.sequence_order}. {stage.stage_name}
+                    </span>
 
-                      <StatusPill
-                        status={stage.status}
-                      />
-                    </div>
-                  )
-                )}
+                    <StatusPill status={stage.status} />
+                  </div>
+                ))}
               </div>
             </>
           )

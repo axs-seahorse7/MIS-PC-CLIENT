@@ -1,8 +1,7 @@
-import { useState, useEffect, useMemo  } from "react";
-import { Form, Select, InputNumber, Switch, Input, Row, Col, Tag, Alert, message, Modal, Descriptions } from "antd";
+import { useState, useEffect, useMemo } from "react";
+import { Form, Select, InputNumber, Switch, Input, Row, Col, Tag, Alert, message, Modal, Descriptions, Spin, Empty } from "antd";
+import { Search, Package, ArrowLeft, ChevronRight, Plus, Pencil, Trash2, Layers } from "lucide-react";
 import SortableFlowList from "../../../components/SortableDnd/SortableFlowList";
-import MasterHeader from "../Masters/components/MasterHeader";
-import MasterToolbar from "../Masters/components/MasterToolbar";
 import MasterTable from "../Masters/components/MasterTable";
 import DeleteModal from "../Masters/components/DeleteModal";
 import MasterFormModal from "../Masters/components/MasterFormModal";
@@ -52,6 +51,14 @@ const SOURCE_TYPE_LABEL = {
   LOCAL_FILE: "Local File System",
   API: "External API",
 };
+
+const SCAN_MODE_FILTER_OPTIONS = [{ value: "All", label: "All Scan Modes" }, ...SCAN_MODE_OPTIONS];
+
+const EXTERNAL_FILTER_OPTIONS = [
+  { value: "All", label: "External: All" },
+  { value: "YES", label: "External only" },
+  { value: "NO", label: "Non-external only" },
+];
 
 const formatCreatedDate = (dateInput) =>
   new Date(dateInput || Date.now()).toLocaleDateString("en-GB", {
@@ -110,19 +117,81 @@ const normalizeFlow = (item, productOptions = [], stageOptions = []) => {
   };
 };
 
+const PrimaryButton = ({ onClick, children }) => (
+  <button
+    onClick={onClick}
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      height: 36,
+      padding: "0 14px",
+      borderRadius: 9,
+      border: "none",
+      background: "#2563EB",
+      color: "#fff",
+      fontSize: 13,
+      fontWeight: 600,
+      cursor: "pointer",
+    }}
+  >
+    <Plus size={15} />
+    {children}
+  </button>
+);
+
+const IconButton = ({ icon: Icon, tone, title, onClick }) => {
+  const tones = {
+    edit: { bg: "#EFF6FF", color: "#2563EB", border: "#DBEAFE" },
+    delete: { bg: "#FEF2F2", color: "#DC2626", border: "#FEE2E2" },
+  };
+  const s = tones[tone];
+
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      style={{
+        width: 28,
+        height: 28,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 7,
+        border: `1px solid ${s.border}`,
+        background: s.bg,
+        color: s.color,
+        cursor: "pointer",
+      }}
+    >
+      <Icon size={14} />
+    </button>
+  );
+};
+
 const ProductStage = () => {
   const [flows, setFlows] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [lineOptions, setLineOptions] = useState([]);
-  const [selectedLineId, setSelectedLineId] = useState(null); 
+  const [selectedLineId, setSelectedLineId] = useState(null);
 
   const [productOptions, setProductOptions] = useState([]);
   // { value, label, machineCode, machineType } — machineCode/Type come from the stage
   const [stageOptions, setStageOptions] = useState([]);
   const [optionsLoading, setOptionsLoading] = useState(true);
 
+  // Step control: null => Step 1 (products), otherwise Step 2 (that product's flow)
+  const [selectedProductId, setSelectedProductId] = useState(null);
+
+  // Step 1 filter
+  const [productSearch, setProductSearch] = useState("");
+
+  // Step 2 filters
   const [search, setSearch] = useState("");
+  const [lineFilter, setLineFilter] = useState("All");
+  const [scanFilter, setScanFilter] = useState("All");
+  const [externalFilter, setExternalFilter] = useState("All");
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
@@ -157,11 +226,11 @@ const ProductStage = () => {
       setLoading(true);
       setOptionsLoading(true);
 
-     const [productsRes, stagesRes, flowsRes, linesRes] = await Promise.all([
+      const [productsRes, stagesRes, flowsRes, linesRes] = await Promise.all([
         api.get("/products/admin"),
         api.get("/stages/all"),
         api.get("/product-stage-flow/all"),
-        api.get("/production-lines/all"), // Confirm this endpoint exists in your server
+        api.get("/production-lines/all"),
       ]);
 
       const lineList = (linesRes.data?.data || linesRes.data || []).map((line) => ({
@@ -174,8 +243,9 @@ const ProductStage = () => {
       const productList = (productsRes.data?.data || productsRes.data || []).map((p) => ({
         value: p._id || p.id,
         label: p.name,
+        erpNo: p.erp_no,
       }));
-      
+
       const stageList = (stagesRes.data?.data || stagesRes.data || []).map((s) => ({
         value: s._id || s.id,
         label: s.name,
@@ -198,20 +268,169 @@ const ProductStage = () => {
     }
   };
 
-  const filteredData = flows.filter((item) => {
-    const query = search.toLowerCase();
-    return (
-      item.productName.toLowerCase().includes(query) ||
-      item.stageName.toLowerCase().includes(query) ||
-      String(item.sequenceNo).includes(query) ||
-      (item.machineCode || "").toLowerCase().includes(query)
-    );
-  });
+  // ----------------------------------------------------------------
+  // Step 1: product cards (every product, with its flow stats)
+  // ----------------------------------------------------------------
+  const productCards = useMemo(() => {
+    const map = new Map();
 
-  const openAddModal = () => {
+    productOptions.forEach((p) => {
+      map.set(String(p.value), {
+        key: String(p.value),
+        productId: p.value,
+        name: p.label,
+        erpNo: p.erpNo,
+        flows: [],
+      });
+    });
+
+    flows.forEach((f) => {
+      const key = String(f.productId);
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          productId: f.productId,
+          name: f.productName,
+          erpNo: null,
+          flows: [],
+        });
+      }
+
+      map.get(key).flows.push(f);
+    });
+
+    return Array.from(map.values()).map((c) => {
+      const lines = Array.from(new Set(c.flows.map((f) => f.lineName).filter((n) => n && n !== "-")));
+
+      return {
+        ...c,
+        lines,
+        externalCount: c.flows.filter((f) => f.isExternalDependency).length,
+      };
+    });
+  }, [productOptions, flows]);
+
+  const visibleProductCards = useMemo(() => {
+    const q = productSearch.trim().toLowerCase();
+
+    return productCards
+      .filter(
+        (c) =>
+          !q ||
+          (c.name || "").toLowerCase().includes(q) ||
+          String(c.erpNo || "").toLowerCase().includes(q) ||
+          c.lines.some((l) => l.toLowerCase().includes(q))
+      )
+      .sort((a, b) => {
+        if (a.flows.length !== b.flows.length) return b.flows.length - a.flows.length;
+        return (a.name || "").localeCompare(b.name || "");
+      });
+  }, [productCards, productSearch]);
+
+  const selectedProduct = useMemo(
+    () => productCards.find((c) => c.key === selectedProductId) || null,
+    [productCards, selectedProductId]
+  );
+
+  // ----------------------------------------------------------------
+  // Step 2: this product's flow, split per production line
+  // ----------------------------------------------------------------
+  const productLineOptions = useMemo(() => {
+    if (!selectedProduct) return [{ value: "All", label: "All Lines" }];
+
+    const seen = new Map();
+    selectedProduct.flows.forEach((f) => {
+      if (f.lineId != null) seen.set(f.lineId, f.lineName);
+    });
+
+    return [
+      { value: "All", label: "All Lines" },
+      ...Array.from(seen.entries()).map(([value, label]) => ({ value, label })),
+    ];
+  }, [selectedProduct]);
+
+  // stage-level filters (search / scan mode / external)
+  const stageFiltersActive = !!search.trim() || scanFilter !== "All" || externalFilter !== "All";
+  const filtersActive = stageFiltersActive || lineFilter !== "All";
+
+  const lineGroups = useMemo(() => {
+    if (!selectedProduct) return [];
+
+    const q = search.trim().toLowerCase();
+    const map = new Map();
+
+    selectedProduct.flows.forEach((f) => {
+      if (lineFilter !== "All" && Number(f.lineId) !== Number(lineFilter)) return;
+
+      const key = String(f.lineId);
+
+      if (!map.has(key)) {
+        map.set(key, {
+          id: `${f.productId}-${f.lineId}`,
+          productId: f.productId,
+          lineId: f.lineId,
+          lineName: f.lineName,
+          allStages: [], // full ordered list, used for drag & drop reorder
+        });
+      }
+
+      map.get(key).allStages.push(f);
+    });
+
+    return Array.from(map.values())
+      .map((g) => {
+        const allStages = [...g.allStages].sort((a, b) => a.sequenceNo - b.sequenceNo);
+
+        const matches = allStages.filter((f) => {
+          if (scanFilter !== "All" && f.scanMode !== scanFilter) return false;
+          if (externalFilter === "YES" && !f.isExternalDependency) return false;
+          if (externalFilter === "NO" && f.isExternalDependency) return false;
+          if (
+            q &&
+            !(
+              f.stageName.toLowerCase().includes(q) ||
+              String(f.sequenceNo).includes(q) ||
+              (f.machineCode || "").toLowerCase().includes(q)
+            )
+          )
+            return false;
+          return true;
+        });
+
+        return { ...g, allStages, matches };
+      })
+      .filter((g) => !stageFiltersActive || g.matches.length > 0)
+      .sort((a, b) => String(a.lineName).localeCompare(String(b.lineName)));
+  }, [selectedProduct, lineFilter, search, scanFilter, externalFilter, stageFiltersActive]);
+
+  const resetFilters = () => {
+    setSearch("");
+    setLineFilter("All");
+    setScanFilter("All");
+    setExternalFilter("All");
+  };
+
+  const openProduct = (card) => {
+    resetFilters();
+    setSelectedProductId(card.key);
+  };
+
+  const backToProducts = () => {
+    resetFilters();
+    setSelectedProductId(null);
+  };
+
+  // ----------------------------------------------------------------
+  // Add / Edit
+  // ----------------------------------------------------------------
+  const openAddModal = (prefill = {}) => {
     setEditingRecord(null);
     form.resetFields();
+    setSelectedLineId(prefill.lineId ?? null);
     form.setFieldsValue({
+      productId: prefill.productId,
+      lineId: prefill.lineId,
       scanMode: "SINGLE",
       isExternalDependency: false,
       externalSource: undefined,
@@ -225,6 +444,18 @@ const ProductStage = () => {
       apiResultField: undefined,
     });
     setFormOpen(true);
+  };
+
+  // From Step 2: pre-fill the product, and the line when it's unambiguous
+  const openAddForProduct = (lineId) => {
+    let line = lineId;
+
+    if (line == null) {
+      if (lineFilter !== "All") line = lineFilter;
+      else if (productLineOptions.length === 2) line = productLineOptions[1].value;
+    }
+
+    openAddModal({ productId: selectedProduct?.productId, lineId: line });
   };
 
   const openEditModal = (record) => {
@@ -341,16 +572,44 @@ const ProductStage = () => {
     }
   };
 
-  // No manual Serial No column — MasterTable already renders its own S.No column.
-  const columns = [
-    { title: "Product", dataIndex: "productName", key: "productName" },
-    { title: "Stage", dataIndex: "stageName", key: "stageName" },
+  const handleReorder = async (productId, lineId, orderedIds) => {
+    setFlows((prev) => {
+      const map = new Map(orderedIds.map((id, idx) => [id, idx + 1]));
+
+      return prev.map((flow) =>
+        Number(flow.productId) === Number(productId) &&
+        Number(flow.lineId) === Number(lineId) &&
+        map.has(flow.id)
+          ? { ...flow, sequenceNo: map.get(flow.id) }
+          : flow
+      );
+    });
+
+    try {
+      await api.patch("/product-stage-flow/reorder", {
+        productId,
+        lineId,
+        orderedIds,
+      });
+    } catch (err) {
+      message.error(err?.response?.data?.message || "Failed to reorder — reverting");
+      await loadInitialData();
+    }
+  };
+
+  // ----------------------------------------------------------------
+  // Read-only table, used when stage filters are active. Drag & drop
+  // reorder is only safe on the full, unfiltered list, so while
+  // filtering we show a plain table with edit / delete instead.
+  // ----------------------------------------------------------------
+  const filteredColumns = [
     {
       title: "Sequence No",
       dataIndex: "sequenceNo",
       key: "sequenceNo",
       sorter: (a, b) => a.sequenceNo - b.sequenceNo,
     },
+    { title: "Stage", dataIndex: "stageName", key: "stageName" },
     {
       title: "Scan Mode",
       dataIndex: "scanMode",
@@ -373,7 +632,9 @@ const ProductStage = () => {
           >
             {record.externalSource || "Yes"}
             {record.externalMachineType ? ` [${record.externalMachineType}]` : ""}
-            {record.externalSourceType ? ` (${SOURCE_TYPE_LABEL[record.externalSourceType] || record.externalSourceType})` : ""}
+            {record.externalSourceType
+              ? ` (${SOURCE_TYPE_LABEL[record.externalSourceType] || record.externalSourceType})`
+              : ""}
           </Tag>
         ) : (
           <Tag color="default">No</Tag>
@@ -383,113 +644,420 @@ const ProductStage = () => {
       title: "Machine Code",
       dataIndex: "machineCode",
       key: "machineCode",
-      render: (v) =>
-        v ? <Tag color="blue">{v}</Tag> : <span style={{ color: "#94A3B8" }}>—</span>,
+      render: (v) => (v ? <Tag color="blue">{v}</Tag> : <span style={{ color: "#94A3B8" }}>—</span>),
     },
     { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
+    {
+      title: "Actions",
+      key: "actions",
+      width: 100,
+      render: (_, r) => (
+        <div style={{ display: "flex", gap: 6 }}>
+          <IconButton icon={Pencil} tone="edit" title="Edit" onClick={() => openEditModal(r)} />
+          <IconButton icon={Trash2} tone="delete" title="Delete" onClick={() => setDeleteTarget(r)} />
+        </div>
+      ),
+    },
   ];
 
-  
-  const productGroups = useMemo(() => {
-    const map = new Map();
+  // ----------------------------------------------------------------
+  // Step 1 UI
+  // ----------------------------------------------------------------
+  const renderProductStep = () => (
+    <>
+      <div style={{ padding: "20px 20px 0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#0F172A" }}>Product Stage Flow</div>
+            <div style={{ fontSize: 13, color: "#64748B", marginTop: 2 }}>
+              Select a product to define which stages it uses and in what sequence
+            </div>
+          </div>
 
-    filteredData.forEach((flow) => {
-      const key = `${flow.productId}-${flow.lineId}`;
+          <PrimaryButton onClick={() => openAddModal()}>Add Product Stage</PrimaryButton>
+        </div>
+      </div>
 
-      if (!map.has(key)) {
-        map.set(key, {
-          id: key,
-          productId: flow.productId,
-          lineId: flow.lineId,
-          productName: flow.productName,
-          lineName: flow.lineName,
-          stages: [],
-        });
-      }
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "14px 20px",
+          marginTop: 16,
+          borderTop: "1px solid #F1F5F9",
+          borderBottom: "1px solid #F1F5F9",
+          background: "#FBFCFD",
+        }}
+      >
+        <Input
+          placeholder="Search product, ERP no. or line..."
+          prefix={<Search size={15} color="#94A3B8" />}
+          value={productSearch}
+          onChange={(e) => setProductSearch(e.target.value)}
+          style={{ maxWidth: 300, borderRadius: 10, fontSize: 13 }}
+          allowClear
+        />
+        <span style={{ fontSize: 12, color: "#64748B" }}>
+          {visibleProductCards.length} product{visibleProductCards.length === 1 ? "" : "s"}
+        </span>
+      </div>
 
-      map.get(key).stages.push(flow);
-    });
+      <Spin spinning={loading}>
+        <div style={{ padding: 20, minHeight: 200 }}>
+          {visibleProductCards.length === 0 && !loading ? (
+            <Empty description="No products found" />
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                gap: 16,
+              }}
+            >
+              {visibleProductCards.map((card) => (
+                <div
+                  key={card.key}
+                  className="ps-product-card"
+                  onClick={() => openProduct(card)}
+                  style={{
+                    border: "1px solid #E2E8F0",
+                    borderRadius: 12,
+                    padding: 16,
+                    background: "#fff",
+                    cursor: "pointer",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 14,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 10,
+                        background: "#EFF6FF",
+                        color: "#2563EB",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Package size={20} />
+                    </div>
 
-    map.forEach((group) =>
-      group.stages.sort((a, b) => a.sequenceNo - b.sequenceNo)
-    );
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          fontSize: 14,
+                          color: "#0F172A",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={card.name}
+                      >
+                        {card.name}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+                        {card.erpNo ? `ERP ${card.erpNo}` : "No ERP no."}
+                      </div>
+                    </div>
 
-    return Array.from(map.values());
-  }, [filteredData]);
+                    <ChevronRight size={18} color="#94A3B8" />
+                  </div>
 
+                  <div style={{ display: "flex", gap: 24 }}>
+                    <div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: "#0F172A", lineHeight: 1.1 }}>
+                        {card.flows.length}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "#64748B", marginTop: 2 }}>Stages</div>
+                    </div>
 
-  const productColumns = [
-    { title: "Product", dataIndex: "productName", key: "productName" },
-    { title: "Production Line", dataIndex: "lineName", key: "lineName" },
-    { title: "Stages in Flow", key: "count", render: (_, r) => r.stages.length },
-  ];
+                    <div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: "#0F172A", lineHeight: 1.1 }}>
+                        {card.lines.length}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "#64748B", marginTop: 2 }}>
+                        Line{card.lines.length === 1 ? "" : "s"}
+                      </div>
+                    </div>
 
+                    {card.externalCount > 0 && (
+                      <div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: "#EA580C", lineHeight: 1.1 }}>
+                          {card.externalCount}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: "#64748B", marginTop: 2 }}>External</div>
+                      </div>
+                    )}
+                  </div>
 
-  const handleReorder = async (productId, lineId, orderedIds) => {
-    setFlows((prev) => {
-      const map = new Map(orderedIds.map((id, idx) => [id, idx + 1]));
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minHeight: 22 }}>
+                    {card.flows.length === 0 ? (
+                      <span style={{ fontSize: 12, color: "#94A3B8" }}>No stages configured yet</span>
+                    ) : (
+                      <>
+                        {card.lines.slice(0, 3).map((l) => (
+                          <span
+                            key={l}
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: "2px 9px",
+                              borderRadius: 20,
+                              background: "#F1F5F9",
+                              color: "#475569",
+                            }}
+                          >
+                            {l}
+                          </span>
+                        ))}
+                        {card.lines.length > 3 && (
+                          <span style={{ fontSize: 11, color: "#64748B", padding: "2px 4px" }}>
+                            +{card.lines.length - 3} more
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Spin>
+    </>
+  );
 
-      return prev.map((flow) =>
-        Number(flow.productId) === Number(productId) &&
-        Number(flow.lineId) === Number(lineId) &&
-        map.has(flow.id)
-          ? { ...flow, sequenceNo: map.get(flow.id) }
-          : flow
-      );
-    });
+  // ----------------------------------------------------------------
+  // Step 2 UI
+  // ----------------------------------------------------------------
+  const renderFlowStep = () => (
+    <>
+      <div style={{ padding: "20px 20px 0" }}>
+        <button
+          onClick={backToProducts}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            border: "none",
+            background: "transparent",
+            color: "#2563EB",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+            padding: 0,
+            marginBottom: 12,
+          }}
+        >
+          <ArrowLeft size={15} />
+          All products
+        </button>
 
-    try {
-      await api.patch("/product-stage-flow/reorder", {
-        productId,
-        lineId,
-        orderedIds,
-      });
-    } catch (err) {
-      message.error(
-        err?.response?.data?.message || "Failed to reorder — reverting"
-      );
-      await loadInitialData();
-    }
-  };
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 11,
+                background: "#EFF6FF",
+                color: "#2563EB",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Package size={22} />
+            </div>
 
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#0F172A" }}>
+                {selectedProduct?.name || "Product"}
+              </div>
+              <div style={{ fontSize: 13, color: "#64748B", marginTop: 2 }}>
+                {selectedProduct?.erpNo ? `ERP ${selectedProduct.erpNo} · ` : ""}
+                {selectedProduct?.flows.length ?? 0} stage{(selectedProduct?.flows.length ?? 0) === 1 ? "" : "s"}
+                {" across "}
+                {selectedProduct?.lines.length ?? 0} line{(selectedProduct?.lines.length ?? 0) === 1 ? "" : "s"}
+              </div>
+            </div>
+          </div>
+
+          <PrimaryButton onClick={() => openAddForProduct()}>Add Stage</PrimaryButton>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "14px 20px",
+          marginTop: 16,
+          borderTop: "1px solid #F1F5F9",
+          borderBottom: "1px solid #F1F5F9",
+          background: "#FBFCFD",
+          flexWrap: "wrap",
+        }}
+      >
+        <Input
+          placeholder="Search stage, sequence or machine code..."
+          prefix={<Search size={15} color="#94A3B8" />}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ maxWidth: 300, borderRadius: 10, fontSize: 13 }}
+          allowClear
+        />
+
+        <Select value={lineFilter} onChange={setLineFilter} style={{ width: 170 }} options={productLineOptions} />
+
+        <Select value={scanFilter} onChange={setScanFilter} style={{ width: 170 }} options={SCAN_MODE_FILTER_OPTIONS} />
+
+        <Select
+          value={externalFilter}
+          onChange={setExternalFilter}
+          style={{ width: 170 }}
+          options={EXTERNAL_FILTER_OPTIONS}
+        />
+
+        {filtersActive && (
+          <button
+            onClick={resetFilters}
+            style={{
+              border: "none",
+              background: "transparent",
+              color: "#2563EB",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
+      {stageFiltersActive && (
+        <div style={{ padding: "10px 20px 0" }}>
+          <Alert
+            type="info"
+            showIcon
+            message="Reordering is paused while search or stage filters are on. Clear them to drag stages."
+          />
+        </div>
+      )}
+
+      <Spin spinning={loading}>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20, minHeight: 160 }}>
+          {lineGroups.length === 0 && !loading ? (
+            <Empty
+              description={
+                selectedProduct?.flows.length
+                  ? "No stages match the current filters"
+                  : "No stages configured for this product yet"
+              }
+            />
+          ) : (
+            lineGroups.map((group) => (
+              <div
+                key={group.id}
+                style={{ border: "1px solid #E2E8F0", borderRadius: 12, overflow: "hidden", background: "#fff" }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    padding: "12px 16px",
+                    background: "#F8FAFC",
+                    borderBottom: "1px solid #E2E8F0",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Layers size={16} color="#64748B" />
+                    <span style={{ fontWeight: 700, fontSize: 14, color: "#0F172A" }}>{group.lineName}</span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "#2563EB",
+                        background: "#EFF6FF",
+                        borderRadius: 20,
+                        padding: "2px 10px",
+                      }}
+                    >
+                      {stageFiltersActive
+                        ? `${group.matches.length} of ${group.allStages.length} stages`
+                        : `${group.allStages.length} stage${group.allStages.length === 1 ? "" : "s"}`}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={() => openAddForProduct(group.lineId)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      height: 28,
+                      padding: "0 10px",
+                      borderRadius: 7,
+                      border: "1px solid #DBEAFE",
+                      background: "#EFF6FF",
+                      color: "#2563EB",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Plus size={13} />
+                    Add stage
+                  </button>
+                </div>
+
+                <div style={{ padding: stageFiltersActive ? 0 : "8px 12px" }}>
+                  {stageFiltersActive ? (
+                    <MasterTable columns={filteredColumns} data={group.matches} loading={false} rowKey="id" />
+                  ) : (
+                    <SortableFlowList
+                      productId={group.productId}
+                      lineId={group.lineId}
+                      items={group.allStages}
+                      onEdit={openEditModal}
+                      onDelete={setDeleteTarget}
+                      onReorder={handleReorder}
+                    />
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Spin>
+    </>
+  );
 
   return (
     <div style={{ background: "#fff", border: "1px solid #F1F5F9", borderRadius: 5, overflow: "hidden" }}>
-      <div style={{ padding: "20px 20px 0" }}>
-        <MasterHeader
-          title="Product Stage Flow"
-          description="Define which stages belong to a product and in what sequence"
-          buttonLabel="Add Product Stage"
-          onAddClick={openAddModal}
-        />
-      </div>
+      <style>{`
+        .ps-product-card {
+          transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+        }
+        .ps-product-card:hover {
+          border-color: #BFDBFE !important;
+          box-shadow: 0 6px 18px rgba(37, 99, 235, 0.08);
+          transform: translateY(-1px);
+        }
+      `}</style>
 
-      <MasterToolbar
-        searchValue={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search by product, stage, sequence number or machine code..."
-      />
-
-      <MasterTable
-        columns={productColumns}
-        data={productGroups}
-        loading={loading}
-        rowKey="id"
-        expandable={{
-          expandedRowRender: (group) => (
-            <div style={{ padding: "8px 4px" }}>
-              <SortableFlowList
-                productId={group.productId}
-                lineId={group.lineId}
-                items={group.stages}
-                onEdit={openEditModal}
-                onDelete={setDeleteTarget}
-                onReorder={handleReorder}
-              />
-            </div>
-          ),
-        }}
-      />
+      {selectedProductId === null || !selectedProduct ? renderProductStep() : renderFlowStep()}
 
       <MasterFormModal
         open={formOpen}
@@ -499,7 +1067,6 @@ const ProductStage = () => {
         confirmLoading={saving}
       >
         <Form form={form} layout="vertical">
-          
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item
@@ -562,11 +1129,7 @@ const ProductStage = () => {
                 }
               >
                 <Select
-                  placeholder={
-                    selectedLineId
-                      ? "Select stage"
-                      : "Select production line first"
-                  }
+                  placeholder={selectedLineId ? "Select stage" : "Select production line first"}
                   options={filteredStageOptions}
                   loading={optionsLoading}
                   disabled={!selectedLineId}
@@ -578,9 +1141,7 @@ const ProductStage = () => {
             </Col>
           </Row>
 
-
           <Row gutter={16}>
-            
             <Col span={12}>
               <Form.Item
                 name="scanMode"
@@ -717,7 +1278,11 @@ const ProductStage = () => {
                   </Row>
                   <Row gutter={16}>
                     <Col span={16}>
-                      <Form.Item name="apiPayloadSample" label="Expected Response Payload (sample)" style={{ marginBottom: 0 }}>
+                      <Form.Item
+                        name="apiPayloadSample"
+                        label="Expected Response Payload (sample)"
+                        style={{ marginBottom: 0 }}
+                      >
                         <TextArea rows={3} placeholder='e.g. { "status": "PASS", "itemCode": "TH26FG..." }' />
                       </Form.Item>
                     </Col>
@@ -765,7 +1330,9 @@ const ProductStage = () => {
               {machineDetailsTarget.machineCode ? (
                 <Tag color="blue">{machineDetailsTarget.machineCode}</Tag>
               ) : (
-                <span style={{ color: "#94A3B8" }}>Not assigned — set this stage up as an external machine in Stage configuration</span>
+                <span style={{ color: "#94A3B8" }}>
+                  Not assigned — set this stage up as an external machine in Stage configuration
+                </span>
               )}
             </Descriptions.Item>
             <Descriptions.Item label="Source Type" span={2}>
