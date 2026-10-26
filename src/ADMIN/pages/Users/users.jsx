@@ -43,9 +43,11 @@ const normalizeUser = (item, factoryOptions = [], lineOptions = [], stageOptions
     ? item.factory_name || factoryOptions.find((f) => f.value === item.factory_id)?.label || "-"
     : "\u2014",
   lineId: item.line_id ?? null,
-  lineName: item.line_id
-    ? item.line_name || lineOptions.find((l) => l.value === item.line_id)?.label || "-"
-    : "\u2014",
+  lineName: item.line_name ?? "",
+  productionLineName:
+    item.production_line_name ||
+    lineOptions.find((l) => l.value === item.line_id)?.label ||
+    "—",
   stageId: item.stage_id ?? null,
   stageName: item.stage_id
     ? item.stageName || stageOptions.find((s) => s.value === item.stage_id)?.label || "-"
@@ -171,6 +173,7 @@ const Users = () => {
       role: record.role,
       factoryId: record.factoryId || undefined,
       lineId: record.lineId || undefined,
+      lineName: record.lineName || "",
       stageId: record.stageId || undefined,
       status: record.status,
     });
@@ -206,6 +209,7 @@ const Users = () => {
       role: values.role,
       factory_id: values.factoryId || null,
       line_id: values.role === "OPERATOR" ? values.lineId || null : null,
+      line_name: values.lineName?.trim() || null,
       stage_id: values.role === "OPERATOR" ? values.stageId || null : null,
       is_active: values.status === "Active",
     };
@@ -276,24 +280,33 @@ const Users = () => {
   };
 
 
+ 
   const lineGroups = useMemo(() => {
     const map = new Map();
+
     filteredData.forEach((user) => {
-      const key = user.lineId || `no-line-${user.factoryId || "none"}`;
+      // Group by department ID, not conveyor line name
+      const key = user.lineId ?? `no-line-${user.factoryId ?? "none"}`;
+
       if (!map.has(key)) {
         map.set(key, {
           id: key,
           lineId: user.lineId,
-          lineName: user.lineId ? user.lineName : "No Line / Admin",
+          lineName: user.lineId
+            ? user.productionLineName || "Unknown Department"
+            : "No Line / Admin",
           factoryId: user.factoryId,
           factoryName: user.factoryName,
           users: [],
         });
       }
+
       map.get(key).users.push(user);
     });
+
     return Array.from(map.values());
   }, [filteredData]);
+
 
   const lineColumns = [
     { title: "Line", dataIndex: "lineName", key: "lineName" },
@@ -315,6 +328,7 @@ const userColumns = [
   { title: "Name", dataIndex: "name", key: "name" },
   { title: "Email", dataIndex: "email", key: "email", ellipsis: true },
   { title: "Role", dataIndex: "role", key: "role", render: (v) => <Tag color={ROLE_COLORS[v] || "default"}>{v}</Tag> },
+  { title: "Line No.", dataIndex: "lineName", key: "lineName", render: (value) => value || "—",},
   { title: "Stage", dataIndex: "stageName", key: "stageName" },
   { title: "Status", dataIndex: "status", key: "status", render: (v) => <StatusTag status={v} /> },
   { title: "Created Date", dataIndex: "createdDate", key: "createdDate" },
@@ -436,6 +450,7 @@ const userColumns = [
                 <Input placeholder="e.g. jdoe@company.com" />
               </Form.Item>
             </Col>
+
             <Col span={12}>
               <Form.Item
                 name="role"
@@ -447,6 +462,26 @@ const userColumns = [
               </Form.Item>
             </Col>
           </Row>
+
+          
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
+              name="lineName"
+              label="Assigned Line Name"
+              rules={[
+                {
+                  max: 100,
+                  message: "Line name cannot exceed 100 characters",
+                },
+              ]}
+              style={{ marginBottom: 16 }}
+            >
+              <Input placeholder="e.g. Line 1, Line 2, MI Line" />
+            </Form.Item>
+          </Col>
+        </Row>
+
 
           <Row gutter={16}>
             <Col span={roleValue === "OPERATOR" ? 8 : 24}>
