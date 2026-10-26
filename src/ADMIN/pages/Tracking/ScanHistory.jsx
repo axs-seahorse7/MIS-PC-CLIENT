@@ -337,8 +337,7 @@ const ScanHistory = () => {
       },
     ];
 
-    const failureRows =
-      data?.machine_tests?.failures_by_machine || [];
+    const failureRows = data?.machine_tests?.failures_by_machine || [];
 
     return (
       <Space
@@ -375,9 +374,7 @@ const ScanHistory = () => {
                 value={summary.totalFailures}
                 valueStyle={{
                   color:
-                    summary.totalFailures > 0
-                      ? "#DC2626"
-                      : "#16A34A",
+                    summary.totalFailures > 0 ? "#DC2626" : "#16A34A",
                 }}
                 prefix={<AlertTriangle size={18} />}
               />
@@ -443,308 +440,299 @@ const ScanHistory = () => {
     );
   };
 
-  // ------------------------------------------------------------------
-// 1) Add these to your lucide-react import:
-//    Cpu, User, Layers, ClipboardList, MessageSquare, SkipForward
-//    (Clock, CheckCircle2, XCircle, AlertTriangle, Workflow are already imported)
-//
-// 2) Paste everything below ABOVE your component (the two helpers + config),
-//    then replace your existing renderScanJourney with the one at the bottom
-//    (paste it inside the component, where the old one was).
-// ------------------------------------------------------------------
 
-// Status -> colours + icon used for the timeline dot and the remarks box
-const JOURNEY_STATUS = {
-  REJECTED: { main: "#DC2626", soft: "#FEF2F2", border: "#FECACA", icon: XCircle, label: "Rejected" },
-  SKIPPED_STAGE: { main: "#D97706", soft: "#FFFBEB", border: "#FDE68A", icon: SkipForward, label: "Skipped" },
-  DEFAULT: { main: "#16A34A", soft: "#F0FDF4", border: "#BBF7D0", icon: CheckCircle2, label: "Passed" },
-};
+  // Status -> colours + icon used for the timeline dot and the remarks box
+  const JOURNEY_STATUS = {
+    REJECTED: { main: "#DC2626", soft: "#FEF2F2", border: "#FECACA", icon: XCircle, label: "Rejected" },
+    SKIPPED_STAGE: { main: "#D97706", soft: "#FFFBEB", border: "#FDE68A", icon: SkipForward, label: "Skipped" },
+    DEFAULT: { main: "#16A34A", soft: "#F0FDF4", border: "#BBF7D0", icon: CheckCircle2, label: "Passed" },
+  };
 
-const getJourneyStatus = (status) => JOURNEY_STATUS[status] || JOURNEY_STATUS.DEFAULT;
+  const getJourneyStatus = (status) => JOURNEY_STATUS[status] || JOURNEY_STATUS.DEFAULT;
 
-// Colourful icon tile + label + value
-const InfoItem = ({ icon: Icon, bg, color, label, value }) => (
-  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-    <div
-      style={{
-        width: 32,
-        height: 32,
-        borderRadius: 9,
-        background: bg,
-        color,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-      }}
-    >
-      <Icon size={16} />
-    </div>
-
-    <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 11, color: "#94A3B8", fontWeight: 600, letterSpacing: 0.3, textTransform: "uppercase" }}>
-        {label}
-      </div>
+  // Colourful icon tile + label + value
+  const InfoItem = ({ icon: Icon, bg, color, label, value }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
       <div
         style={{
-          fontSize: 13,
-          color: "#0F172A",
-          fontWeight: 600,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
+          width: 32,
+          height: 32,
+          borderRadius: 9,
+          background: bg,
+          color,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
         }}
-        title={typeof value === "string" ? value : undefined}
       >
-        {value}
+        <Icon size={16} />
+      </div>
+
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 11, color: "#94A3B8", fontWeight: 600, letterSpacing: 0.3, textTransform: "uppercase" }}>
+          {label}
+        </div>
+        <div
+          style={{
+            fontSize: 13,
+            color: "#0F172A",
+            fontWeight: 600,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+          title={typeof value === "string" ? value : undefined}
+        >
+          {value}
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
 
-// Small summary chip shown above the timeline
-const SummaryChip = ({ icon: Icon, bg, color, value, label }) => (
-  <div
-    style={{
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      padding: "8px 14px 8px 8px",
-      borderRadius: 12,
-      border: "1px solid #F1F5F9",
-      background: "#FBFCFD",
-    }}
-  >
+  // Small summary chip shown above the timeline
+  const SummaryChip = ({ icon: Icon, bg, color, value, label }) => (
     <div
       style={{
-        width: 32,
-        height: 32,
-        borderRadius: 9,
-        background: bg,
-        color,
         display: "flex",
         alignItems: "center",
-        justifyContent: "center",
+        gap: 10,
+        padding: "8px 14px 8px 8px",
+        borderRadius: 12,
+        border: "1px solid #F1F5F9",
+        background: "#FBFCFD",
       }}
     >
-      <Icon size={16} />
+      <div
+        style={{
+          width: 32,
+          height: 32,
+          borderRadius: 9,
+          background: bg,
+          color,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Icon size={16} />
+      </div>
+      <div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", lineHeight: 1.1 }}>{value}</div>
+        <div style={{ fontSize: 11.5, color: "#64748B" }}>{label}</div>
+      </div>
     </div>
-    <div>
-      <div style={{ fontSize: 16, fontWeight: 700, color: "#0F172A", lineHeight: 1.1 }}>{value}</div>
-      <div style={{ fontSize: 11.5, color: "#64748B" }}>{label}</div>
-    </div>
-  </div>
-);
+  );
 
-// ------------------------------------------------------------------
-// Replacement for renderScanJourney (goes inside the component)
-// ------------------------------------------------------------------
-const renderScanJourney = (data) => {
-  const scans = data?.scan_history || [];
+  // ------------------------------------------------------------------
+  // Replacement for renderScanJourney (goes inside the component)
+  // ------------------------------------------------------------------
+  const renderScanJourney = (data) => {
+    const scans = data?.scan_history || [];
 
-  const rejectedCount = scans.filter((s) => s.status === "REJECTED").length;
-  const skippedCount = scans.filter((s) => s.status === "SKIPPED_STAGE").length;
-  const passedCount = scans.length - rejectedCount - skippedCount;
+    const rejectedCount = scans.filter((s) => s.status === "REJECTED").length;
+    const skippedCount = scans.filter((s) => s.status === "SKIPPED_STAGE").length;
+    const passedCount = scans.length - rejectedCount - skippedCount;
 
-  const timelineItems = scans.map((scan, index) => {
-    const st = getJourneyStatus(scan.status);
-    const StatusIcon = st.icon;
+    const timelineItems = scans.map((scan, index) => {
+      const st = getJourneyStatus(scan.status);
+      const StatusIcon = st.icon;
 
-    return {
-      // custom dot: coloured circle with the status icon
-      dot: (
-        <div
-          style={{
-            width: 25,
-            height: 25,
-            aspectRatio: 1,
-            // padding: "8px 2px",
-            borderRadius: "50%",
-            background: st.main,
-            color: "#ffffff",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: `0 0 0 4px ${st.soft}`,
-          }}
-        >
-          <StatusIcon size={16} />
-        </div>
-      ),
-      color: st.main,
-      children: (
-        <div
-          style={{
-            marginLeft: 6,
-            marginBottom: 14,
-            padding: "14px 16px",
-            borderRadius: 12,
-            border: "1px solid #E2E8F0",
-            borderLeft: `4px solid ${st.main}`,
-            background: "#fff",
-          }}
-        >
-          {/* Header: step no + stage name + result, time on the right */}
+      return {
+        // custom dot: coloured circle with the status icon
+        dot: (
           <div
             style={{
+              width: 25,
+              height: 25,
+              aspectRatio: 1,
+              // padding: "8px 2px",
+              borderRadius: "50%",
+              background: st.main,
+              color: "#ffffff",
               display: "flex",
-              justifyContent: "space-between",
               alignItems: "center",
-              gap: 12,
-              flexWrap: "wrap",
+              justifyContent: "center",
+              boxShadow: `0 0 0 4px ${st.soft}`,
             }}
           >
-            <Space wrap size={10}>
-              <span
-                style={{
-                  minWidth: 24,
-                  height: 24,
-                  padding: "0 7px",
-                  borderRadius: 7,
-                  background: "#F1F5F9",
-                  color: "#475569",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {index + 1}
-              </span>
-
-              <Text strong style={{ fontSize: 14.5 }}>
-                {scan.stage_name || `Stage ${scan.stage_id ?? "-"}`}
-              </Text>
-
-              {resultTag(scan.status)}
-            </Space>
-
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 12.5,
-                color: "#64748B",
-                fontWeight: 500,
-              }}
-            >
-              <Clock size={14} />
-              {formatDate(scan.scanned_at)}
-            </span>
+            <StatusIcon size={16} />
           </div>
-
-          {/* Details grid */}
+        ),
+        color: st.main,
+        children: (
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-              gap: 14,
-              marginTop: 14,
-              paddingTop: 14,
-              borderTop: "1px dashed #E2E8F0",
+              marginLeft: 6,
+              marginBottom: 14,
+              padding: "14px 16px",
+              borderRadius: 12,
+              border: "1px solid #E2E8F0",
+              borderLeft: `4px solid ${st.main}`,
+              background: "#fff",
             }}
           >
-            <InfoItem
-              icon={Cpu}
-              bg="#EFF6FF"
-              color="#2563EB"
-              label="Machine"
-              value={scan.machine_code || "Not specified"}
-            />
-
-            <InfoItem
-              icon={User}
-              bg="#F5F3FF"
-              color="#7C3AED"
-              label="Scanned by"
-              value={scan.scanned_by_name || scan.scanned_by || "-"}
-            />
-
-            <InfoItem
-              icon={Layers}
-              bg="#ECFEFF"
-              color="#0891B2"
-              label="Conveyor line"
-              value={scan.line_name || "-"}
-            />
-
-            {scan.production_order_no && (
-              <InfoItem
-                icon={ClipboardList}
-                bg="#FFF7ED"
-                color="#EA580C"
-                label="Order"
-                value={scan.production_order_no}
-              />
-            )}
-          </div>
-
-          {/* Remarks */}
-          {scan.remarks && (
+            {/* Header: step no + stage name + result, time on the right */}
             <div
               style={{
                 display: "flex",
-                gap: 10,
-                alignItems: "flex-start",
-                marginTop: 14,
-                padding: "10px 12px",
-                borderRadius: 10,
-                background: st.soft,
-                border: `1px solid ${st.border}`,
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
               }}
             >
-              <div
+              <Space wrap size={10}>
+                <span
+                  style={{
+                    minWidth: 24,
+                    height: 24,
+                    padding: "0 7px",
+                    borderRadius: 7,
+                    background: "#F1F5F9",
+                    color: "#475569",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {index + 1}
+                </span>
+
+                <Text strong style={{ fontSize: 14.5 }}>
+                  {scan.stage_name || `Stage ${scan.stage_id ?? "-"}`}
+                </Text>
+
+                {resultTag(scan.status)}
+              </Space>
+
+              <span
                 style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 8,
-                  background: st.main,
-                  color: "#fff",
-                  display: "flex",
+                  display: "inline-flex",
                   alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
+                  gap: 6,
+                  fontSize: 12.5,
+                  color: "#64748B",
+                  fontWeight: 500,
                 }}
               >
-                <MessageSquare size={14} />
-              </div>
-
-              <Text style={{ fontSize: 13, color: "#334155", lineHeight: 1.5 }}>{scan.remarks}</Text>
+                <Clock size={14} />
+                {formatDate(scan.scanned_at)}
+              </span>
             </div>
-          )}
-        </div>
-      ),
-    };
-  });
 
-  return (
-    <Card style={panelStyle}>
-      <SectionTitle icon={Workflow} title="Production Journey" count={scans.length} />
+            {/* Details grid */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                gap: 14,
+                marginTop: 14,
+                paddingTop: 14,
+                borderTop: "1px dashed #E2E8F0",
+              }}
+            >
+              <InfoItem
+                icon={Cpu}
+                bg="#EFF6FF"
+                color="#2563EB"
+                label="Machine"
+                value={scan.machine_code || "Not specified"}
+              />
 
-      {timelineItems.length ? (
-        <>
-          {/* Summary strip */}
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: "4px 0 20px" }}>
-            <SummaryChip icon={Workflow} bg="#EFF6FF" color="#2563EB" value={scans.length} label="Total scans" />
-            <SummaryChip icon={CheckCircle2} bg="#ECFDF5" color="#16A34A" value={passedCount} label="Passed" />
-            {rejectedCount > 0 && (
-              <SummaryChip icon={XCircle} bg="#FEF2F2" color="#DC2626" value={rejectedCount} label="Rejected" />
-            )}
-            {skippedCount > 0 && (
-              <SummaryChip icon={SkipForward} bg="#FFFBEB" color="#D97706" value={skippedCount} label="Skipped" />
+              <InfoItem
+                icon={User}
+                bg="#F5F3FF"
+                color="#7C3AED"
+                label="Scanned by"
+                value={scan.scanned_by_name || scan.scanned_by || "-"}
+              />
+
+              <InfoItem
+                icon={Layers}
+                bg="#ECFEFF"
+                color="#0891B2"
+                label="Conveyor line"
+                value={scan.line_name || "-"}
+              />
+
+              {scan.production_order_no && (
+                <InfoItem
+                  icon={ClipboardList}
+                  bg="#FFF7ED"
+                  color="#EA580C"
+                  label="Order"
+                  value={scan.production_order_no}
+                />
+              )}
+            </div>
+
+            {/* Remarks */}
+            {scan.remarks && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "flex-start",
+                  marginTop: 14,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: st.soft,
+                  border: `1px solid ${st.border}`,
+                }}
+              >
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 8,
+                    background: st.main,
+                    color: "#fff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <MessageSquare size={14} />
+                </div>
+
+                <Text style={{ fontSize: 13, color: "#334155", lineHeight: 1.5 }}>{scan.remarks}</Text>
+              </div>
             )}
           </div>
+        ),
+      };
+    });
 
-          <Timeline items={timelineItems} />
-        </>
-      ) : (
-        <EmptySection text="No MES scan history was found. Machine results may still be available below." />
-      )}
-    </Card>
-  );
-};
+    return (
+      <Card style={panelStyle}>
+        <SectionTitle icon={Workflow} title="Production Journey" count={scans.length} />
+
+        {timelineItems.length ? (
+          <>
+            {/* Summary strip */}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: "4px 0 20px" }}>
+              <SummaryChip icon={Workflow} bg="#EFF6FF" color="#2563EB" value={scans.length} label="Total scans" />
+              <SummaryChip icon={CheckCircle2} bg="#ECFDF5" color="#16A34A" value={passedCount} label="Passed" />
+              {rejectedCount > 0 && (
+                <SummaryChip icon={XCircle} bg="#FEF2F2" color="#DC2626" value={rejectedCount} label="Rejected" />
+              )}
+              {skippedCount > 0 && (
+                <SummaryChip icon={SkipForward} bg="#FFFBEB" color="#D97706" value={skippedCount} label="Skipped" />
+              )}
+            </div>
+
+            <Timeline items={timelineItems} />
+          </>
+        ) : (
+          <EmptySection text="No MES scan history was found. Machine results may still be available below." />
+        )}
+      </Card>
+    );
+  };
 
   const renderSerialResult = (data) => {
     const production = data.production;
@@ -1524,7 +1512,7 @@ const renderScanJourney = (data) => {
         }}
       >
         <Clock size={13} />
-        Results reflect the records currently returned by the SMES Server.
+          Results reflect the records currently returned by the SMES Server.
       </div>
     </div>
   );
