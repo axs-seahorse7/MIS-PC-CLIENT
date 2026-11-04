@@ -176,6 +176,9 @@ const ScanHistory = () => {
   const [searchedValue, setSearchedValue] = useState("");
   const [error, setError] = useState("");
 
+  const [orderOptions, setOrderOptions] = useState([]);
+  const [selectedOrderId, setSelectedOrderId] = useState(null);
+
   const searchTraceability = async (value = query) => {
     const searchValue = String(value || "").trim();
 
@@ -191,6 +194,8 @@ const ScanHistory = () => {
     setLoading(true);
     setError("");
     setResult(null);
+    setOrderOptions([]);
+    setSelectedOrderId(null);
     setSearchedValue(searchValue);
 
     try {
@@ -206,32 +211,64 @@ const ScanHistory = () => {
       const payload = response?.data;
 
       if (payload?.success === false) {
-        throw new Error(
-          payload.message || "Traceability search failed."
-        );
+        throw new Error(payload.message || "Traceability search failed.");
       }
 
       if (!payload?.data) {
+        throw new Error("The API returned no traceability data.");
+      }
+
+      if (mode === "serial") {
+        const orders = payload.data.production_orders || [];
+
+        if (!orders.length) {
+          throw new Error("No production orders found for this serial.");
+        }
+
+        setOrderOptions(orders);
+      } else {
+        setResult(payload.data);
+      }
+    } catch (err) {
+      setError(
+        err?.response?.data?.message ||
+        err?.message ||
+        "Unable to retrieve traceability."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProductionOrderSelect = async (productionOrderId) => {
+    setLoading(true);
+    setError("");
+    setSelectedOrderId(productionOrderId);
+
+    try {
+      const response = await api.get("/serial-history/serial", {
+        params: {
+          serial: searchedValue,
+          productionOrderId,
+        },
+      });
+
+      const payload = response?.data;
+
+      if (payload?.success === false || !payload?.data) {
         throw new Error(
-          "The API returned no traceability data."
+          payload?.message || "Unable to load selected PO history."
         );
       }
 
       setResult(payload.data);
     } catch (err) {
-      const status = err?.response?.status;
-
-      const errorMessage =
-        err?.response?.data?.message ||
-        err?.message ||
-        "Unable to retrieve traceability.";
+      setSelectedOrderId(null);
 
       setError(
-        status === 404
-          ? errorMessage
-          : status === 401 || status === 403
-            ? errorMessage
-            : errorMessage
+        err?.response?.data?.message ||
+        err?.message ||
+        "Unable to load production order history."
       );
     } finally {
       setLoading(false);
@@ -244,6 +281,8 @@ const ScanHistory = () => {
     setResult(null);
     setError("");
     setSearchedValue("");
+    setOrderOptions([]);
+    setSelectedOrderId(null);
   };
 
   const resetSearch = () => {
@@ -251,6 +290,8 @@ const ScanHistory = () => {
     setResult(null);
     setError("");
     setSearchedValue("");
+    setOrderOptions([]);
+    setSelectedOrderId(null);
   };
 
   const renderMachineTests = (data) => {
@@ -443,12 +484,68 @@ const ScanHistory = () => {
 
   // Status -> colours + icon used for the timeline dot and the remarks box
   const JOURNEY_STATUS = {
-    REJECTED: { main: "#DC2626", soft: "#FEF2F2", border: "#FECACA", icon: XCircle, label: "Rejected" },
-    SKIPPED_STAGE: { main: "#D97706", soft: "#FFFBEB", border: "#FDE68A", icon: SkipForward, label: "Skipped" },
-    DEFAULT: { main: "#16A34A", soft: "#F0FDF4", border: "#BBF7D0", icon: CheckCircle2, label: "Passed" },
+    REJECTED: {
+      main: "#DC2626",
+      soft: "#FEF2F2",
+      border: "#FECACA",
+      icon: XCircle,
+      label: "Rejected",
+    },
+    SKIPPED_STAGE: {
+      main: "#D97706",
+      soft: "#FFFBEB",
+      border: "#FDE68A",
+      icon: SkipForward,
+      label: "Skipped",
+    },
+    REWORK_STARTED: {
+      main: "#D97706",
+      soft: "#FFFBEB",
+      border: "#FDE68A",
+      icon: Activity,
+      label: "Rework Started",
+    },
+    REWORK_COMPLETED: {
+      main: "#16A34A",
+      soft: "#F0FDF4",
+      border: "#BBF7D0",
+      icon: CheckCircle2,
+      label: "Rework Completed",
+    },
+    REWORK_SUBMITTED: {
+      main: "#2563EB",
+      soft: "#EFF6FF",
+      border: "#BFDBFE",
+      icon: ClipboardList,
+      label: "Submitted for QA",
+    },
+    QA_APPROVED: {
+      main: "#16A34A",
+      soft: "#F0FDF4",
+      border: "#BBF7D0",
+      icon: CheckCircle2,
+      label: "QA Approved",
+    },
+    QA_SENT_BACK: {
+      main: "#D97706",
+      soft: "#FFFBEB",
+      border: "#FDE68A",
+      icon: AlertTriangle,
+      label: "QA Sent Back",
+    },
+    DEFAULT: {
+      main: "#16A34A",
+      soft: "#F0FDF4",
+      border: "#BBF7D0",
+      icon: CheckCircle2,
+      label: "Passed",
+    },
   };
 
-  const getJourneyStatus = (status) => JOURNEY_STATUS[status] || JOURNEY_STATUS.DEFAULT;
+  const getJourneyStatus = (status) =>
+    JOURNEY_STATUS[String(status || "").toUpperCase()] ||
+    JOURNEY_STATUS.DEFAULT;
+
 
   // Colourful icon tile + label + value
   const InfoItem = ({ icon: Icon, bg, color, label, value }) => (
@@ -527,212 +624,471 @@ const ScanHistory = () => {
   // ------------------------------------------------------------------
   // Replacement for renderScanJourney (goes inside the component)
   // ------------------------------------------------------------------
-  const renderScanJourney = (data) => {
-    const scans = data?.scan_history || [];
+  
+const renderScanJourney = (data) => {
+  const scans = data?.scan_history || [];
 
-    const rejectedCount = scans.filter((s) => s.status === "REJECTED").length;
-    const skippedCount = scans.filter((s) => s.status === "SKIPPED_STAGE").length;
-    const passedCount = scans.length - rejectedCount - skippedCount;
+  const qualityHistory =
+    data?.failure_summary?.quality_history ||
+    data?.quality_history ||
+    [];
 
-    const timelineItems = scans.map((scan, index) => {
-      const st = getJourneyStatus(scan.status);
-      const StatusIcon = st.icon;
+  // Merge production scans and quality events for display only.
+  const timelineEvents = [
+    ...scans.map((scan) => ({
+      eventType: "SCAN",
+      timestamp: scan.scanned_at,
+      id: scan.id,
+      record: scan,
+    })),
 
-      return {
-        // custom dot: coloured circle with the status icon
-        dot: (
+    ...qualityHistory.map((event) => ({
+      eventType: "QUALITY",
+      timestamp: event.created_at,
+      id: event.id,
+      record: event,
+    })),
+  ].sort((a, b) => {
+    const timeA = new Date(a.timestamp || 0).getTime();
+    const timeB = new Date(b.timestamp || 0).getTime();
+
+    return timeA - timeB || Number(a.id || 0) - Number(b.id || 0);
+  });
+
+  const rejectedCount = qualityHistory.filter(
+    (event) => event.action_type === "REJECTED"
+  ).length;
+
+  const reworkCount = qualityHistory.filter(
+    (event) => String(event.action_type || "").startsWith("REWORK_")
+  ).length;
+
+  const qaCount = qualityHistory.filter(
+    (event) => String(event.action_type || "").startsWith("QA_")
+  ).length;
+
+  const skippedCount = scans.filter(
+    (scan) => scan.status === "SKIPPED_STAGE"
+  ).length;
+
+  const passedCount = scans.filter(
+    (scan) =>
+      !["REJECTED", "SKIPPED_STAGE"].includes(
+        String(scan.status || "").toUpperCase()
+      )
+  ).length;
+
+  const timelineItems = timelineEvents.map((event, index) => {
+    const isQualityEvent = event.eventType === "QUALITY";
+    const record = event.record;
+
+    const eventStatus = isQualityEvent
+      ? record.action_type
+      : record.status;
+
+    const st = getJourneyStatus(eventStatus);
+    const StatusIcon = st.icon;
+
+    const title = isQualityEvent
+      ? st.label
+      : record.stage_name || `Stage ${record.stage_id ?? "-"}`;
+
+    return {
+      dot: (
+        <div
+          style={{
+            width: 25,
+            height: 25,
+            borderRadius: "50%",
+            background: st.main,
+            color: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: `0 0 0 4px ${st.soft}`,
+          }}
+        >
+          <StatusIcon size={16} />
+        </div>
+      ),
+
+      color: st.main,
+
+      children: (
+        <div
+          style={{
+            marginLeft: 6,
+            marginBottom: 14,
+            padding: "14px 16px",
+            borderRadius: 12,
+            border: "1px solid #E2E8F0",
+            borderLeft: `4px solid ${st.main}`,
+            background: "#fff",
+          }}
+        >
+          {/* Event heading */}
           <div
             style={{
-              width: 25,
-              height: 25,
-              aspectRatio: 1,
-              // padding: "8px 2px",
-              borderRadius: "50%",
-              background: st.main,
-              color: "#ffffff",
               display: "flex",
+              justifyContent: "space-between",
               alignItems: "center",
-              justifyContent: "center",
-              boxShadow: `0 0 0 4px ${st.soft}`,
+              gap: 12,
+              flexWrap: "wrap",
             }}
           >
-            <StatusIcon size={16} />
+            <Space wrap size={10}>
+              <span
+                style={{
+                  minWidth: 24,
+                  height: 24,
+                  padding: "0 7px",
+                  borderRadius: 7,
+                  background: "#F1F5F9",
+                  color: "#475569",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {index + 1}
+              </span>
+
+              <Text strong style={{ fontSize: 14.5 }}>
+                {title}
+              </Text>
+
+              {isQualityEvent ? (
+                <Tag
+                  color={
+                    eventStatus === "REJECTED"
+                      ? "error"
+                      : ["QA_APPROVED", "REWORK_COMPLETED"].includes(eventStatus)
+                        ? "success"
+                        : "warning"
+                  }
+                >
+                  {st.label}
+                </Tag>
+              ) : (
+                resultTag(record.status)
+              )}
+            </Space>
+
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12.5,
+                color: "#64748B",
+              }}
+            >
+              <Clock size={14} />
+              {formatDate(event.timestamp)}
+            </span>
           </div>
-        ),
-        color: st.main,
-        children: (
+
+          {/* Event details */}
           <div
             style={{
-              marginLeft: 6,
-              marginBottom: 14,
-              padding: "14px 16px",
-              borderRadius: 12,
-              border: "1px solid #E2E8F0",
-              borderLeft: `4px solid ${st.main}`,
-              background: "#fff",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+              gap: 14,
+              marginTop: 14,
+              paddingTop: 14,
+              borderTop: "1px dashed #E2E8F0",
             }}
           >
-            {/* Header: step no + stage name + result, time on the right */}
+            {isQualityEvent ? (
+              <>
+                <InfoItem
+                  icon={User}
+                  bg="#F5F3FF"
+                  color="#7C3AED"
+                  label="Performed by"
+                  value={
+                    record.performed_by_name ||
+                    record.performed_by_username ||
+                    "-"
+                  }
+                />
+
+                {record.rework_station_name && (
+                  <InfoItem
+                    icon={Cpu}
+                    bg="#EFF6FF"
+                    color="#2563EB"
+                    label="Rework station"
+                    value={record.rework_station_name}
+                  />
+                )}
+
+                {record.stage_name && (
+                  <InfoItem
+                    icon={Layers}
+                    bg="#ECFEFF"
+                    color="#0891B2"
+                    label="Stage"
+                    value={record.stage_name}
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                <InfoItem
+                  icon={Cpu}
+                  bg="#EFF6FF"
+                  color="#2563EB"
+                  label="Machine"
+                  value={record.machine_code || "Not specified"}
+                />
+
+                <InfoItem
+                  icon={User}
+                  bg="#F5F3FF"
+                  color="#7C3AED"
+                  label="Scanned by"
+                  value={
+                    record.scanned_by_name ||
+                    record.scanned_by ||
+                    "-"
+                  }
+                />
+
+                <InfoItem
+                  icon={Layers}
+                  bg="#ECFEFF"
+                  color="#0891B2"
+                  label="Conveyor line"
+                  value={record.line_name || "-"}
+                />
+
+                {record.production_order_no && (
+                  <InfoItem
+                    icon={ClipboardList}
+                    bg="#FFF7ED"
+                    color="#EA580C"
+                    label="Order"
+                    value={record.production_order_no}
+                  />
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Reason / remarks */}
+          {(record.reason || record.remarks) && (
             <div
               style={{
                 display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <Space wrap size={10}>
-                <span
-                  style={{
-                    minWidth: 24,
-                    height: 24,
-                    padding: "0 7px",
-                    borderRadius: 7,
-                    background: "#F1F5F9",
-                    color: "#475569",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {index + 1}
-                </span>
-
-                <Text strong style={{ fontSize: 14.5 }}>
-                  {scan.stage_name || `Stage ${scan.stage_id ?? "-"}`}
-                </Text>
-
-                {resultTag(scan.status)}
-              </Space>
-
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontSize: 12.5,
-                  color: "#64748B",
-                  fontWeight: 500,
-                }}
-              >
-                <Clock size={14} />
-                {formatDate(scan.scanned_at)}
-              </span>
-            </div>
-
-            {/* Details grid */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-                gap: 14,
+                gap: 10,
+                alignItems: "flex-start",
                 marginTop: 14,
-                paddingTop: 14,
-                borderTop: "1px dashed #E2E8F0",
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: st.soft,
+                border: `1px solid ${st.border}`,
               }}
             >
-              <InfoItem
-                icon={Cpu}
-                bg="#EFF6FF"
-                color="#2563EB"
-                label="Machine"
-                value={scan.machine_code || "Not specified"}
-              />
-
-              <InfoItem
-                icon={User}
-                bg="#F5F3FF"
-                color="#7C3AED"
-                label="Scanned by"
-                value={scan.scanned_by_name || scan.scanned_by || "-"}
-              />
-
-              <InfoItem
-                icon={Layers}
-                bg="#ECFEFF"
-                color="#0891B2"
-                label="Conveyor line"
-                value={scan.line_name || "-"}
-              />
-
-              {scan.production_order_no && (
-                <InfoItem
-                  icon={ClipboardList}
-                  bg="#FFF7ED"
-                  color="#EA580C"
-                  label="Order"
-                  value={scan.production_order_no}
-                />
-              )}
-            </div>
-
-            {/* Remarks */}
-            {scan.remarks && (
               <div
                 style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 8,
+                  background: st.main,
+                  color: "#fff",
                   display: "flex",
-                  gap: 10,
-                  alignItems: "flex-start",
-                  marginTop: 14,
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  background: st.soft,
-                  border: `1px solid ${st.border}`,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
                 }}
               >
-                <div
-                  style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: 8,
-                    background: st.main,
-                    color: "#fff",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  <MessageSquare size={14} />
-                </div>
-
-                <Text style={{ fontSize: 13, color: "#334155", lineHeight: 1.5 }}>{scan.remarks}</Text>
+                <MessageSquare size={14} />
               </div>
+
+              <Text style={{ fontSize: 13, color: "#334155" }}>
+                {record.reason || record.remarks}
+              </Text>
+            </div>
+          )}
+        </div>
+      ),
+    };
+  });
+
+  return (
+    <Card style={panelStyle}>
+      <SectionTitle
+        icon={Workflow}
+        title="Production & Quality Timeline"
+        count={timelineEvents.length}
+      />
+
+      {timelineItems.length ? (
+        <>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+              margin: "4px 0 20px",
+            }}
+          >
+            <SummaryChip
+              icon={Workflow}
+              bg="#EFF6FF"
+              color="#2563EB"
+              value={scans.length}
+              label="Production scans"
+            />
+
+            <SummaryChip
+              icon={Activity}
+              bg="#FFF7ED"
+              color="#D97706"
+              value={reworkCount}
+              label="Rework events"
+            />
+
+            <SummaryChip
+              icon={ClipboardList}
+              bg="#F5F3FF"
+              color="#7C3AED"
+              value={qaCount}
+              label="QA events"
+            />
+
+            <SummaryChip
+              icon={CheckCircle2}
+              bg="#ECFDF5"
+              color="#16A34A"
+              value={passedCount}
+              label="Passed scans"
+            />
+
+            {rejectedCount > 0 && (
+              <SummaryChip
+                icon={XCircle}
+                bg="#FEF2F2"
+                color="#DC2626"
+                value={rejectedCount}
+                label="Rejections"
+              />
+            )}
+
+            {skippedCount > 0 && (
+              <SummaryChip
+                icon={SkipForward}
+                bg="#FFFBEB"
+                color="#D97706"
+                value={skippedCount}
+                label="Skipped scans"
+              />
             )}
           </div>
-        ),
-      };
-    });
 
-    return (
-      <Card style={panelStyle}>
-        <SectionTitle icon={Workflow} title="Production Journey" count={scans.length} />
+          <Timeline items={timelineItems} />
+        </>
+      ) : (
+        <EmptySection text="No production scans or quality events found." />
+      )}
+    </Card>
+  );
+};
 
-        {timelineItems.length ? (
-          <>
-            {/* Summary strip */}
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: "4px 0 20px" }}>
-              <SummaryChip icon={Workflow} bg="#EFF6FF" color="#2563EB" value={scans.length} label="Total scans" />
-              <SummaryChip icon={CheckCircle2} bg="#ECFDF5" color="#16A34A" value={passedCount} label="Passed" />
-              {rejectedCount > 0 && (
-                <SummaryChip icon={XCircle} bg="#FEF2F2" color="#DC2626" value={rejectedCount} label="Rejected" />
-              )}
-              {skippedCount > 0 && (
-                <SummaryChip icon={SkipForward} bg="#FFFBEB" color="#D97706" value={skippedCount} label="Skipped" />
-              )}
-            </div>
+const renderProductionOrderSelection = () => {
+  const columns = [
+    {
+      title: "Production Order",
+      dataIndex: "production_order_no",
+      key: "production_order_no",
+      render: (value) => <Text strong>{value || "-"}</Text>,
+    },
+    {
+      title: "Product",
+      key: "product",
+      render: (_, row) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{row.product_name || "-"}</Text>
+          <Text type="secondary">
+            {row.product_erp_no || row.product_code ||  "-"}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: "Production Line",
+      dataIndex: "line_name",
+      key: "line_name",
+      render: (value) => value || "-",
+    },
+    {
+      title: "Factory",
+      dataIndex: "factory_name",
+      key: "factory_name",
+      render: (value) => value || "-",
+    },
+    {
+      title: "PO Status",
+      dataIndex: "production_order_status",
+      key: "production_order_status",
+      render: resultTag,
+    },
+    {
+      title: "PCB Status",
+      dataIndex: "item_status",
+      key: "item_status",
+      render: resultTag,
+    },
+    {
+      title: "Action",
+      key: "action",
+      render: (_, row) => (
+        <Button
+          type="primary"
+          size="small"
+          loading={loading && selectedOrderId === row.production_order_id}
+          disabled={loading}
+          onClick={() =>
+            handleProductionOrderSelect(row.production_order_id)
+          }
+        >
+          View Traceability
+        </Button>
+      ),
+    },
+  ];
 
-            <Timeline items={timelineItems} />
-          </>
-        ) : (
-          <EmptySection text="No MES scan history was found. Machine results may still be available below." />
-        )}
-      </Card>
-    );
-  };
+  return (
+    <Card style={panelStyle}>
+      <Space direction="vertical" size={4} style={{ marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          Production Orders
+        </Title>
+        <Text type="secondary">
+          Serial: {searchedValue} — Select the correct PO and product
+          to view its traceability.
+        </Text>
+      </Space>
+
+      <Table
+        rowKey={(row, index) =>
+          row.production_order_id || index
+        }
+        columns={columns}
+        dataSource={orderOptions}
+        pagination={false}
+        scroll={{ x: 1000 }}
+        locale={{
+          emptyText: <EmptySection text="No matching production orders." />,
+        }}
+      />
+    </Card>
+  );
+};
+
 
   const renderSerialResult = (data) => {
     const production = data.production;
@@ -857,7 +1213,7 @@ const ScanHistory = () => {
               </Space>
             </Descriptions.Item>
 
-            <Descriptions.Item label="ERP Product Number">
+            <Descriptions.Item label="ERP/SAP Product Number">
               {displayValue(production?.product_erp_no)}
             </Descriptions.Item>
 
@@ -1145,6 +1501,33 @@ const ScanHistory = () => {
       const tests = getMachineTests(history);
       const scans = history.scan_history || [];
 
+      const qualityHistory =
+        history.failure_summary?.quality_history ||
+        history.quality_history ||
+        [];
+
+      const journeyEvents = [
+        ...scans.map((scan) => ({
+          ...scan,
+          event_type: "SCAN",
+          event_time: scan.scanned_at,
+          event_status: scan.status,
+        })),
+
+        ...qualityHistory.map((event) => ({
+          ...event,
+          event_type: "QUALITY",
+          event_time: event.created_at,
+          event_status: event.action_type,
+        })),
+      ].sort((a, b) => {
+        const difference =
+          new Date(a.event_time || 0).getTime() -
+          new Date(b.event_time || 0).getTime();
+
+        return difference || Number(a.id || 0) - Number(b.id || 0);
+      });
+
       return (
         <Space
           direction="vertical"
@@ -1204,34 +1587,62 @@ const ScanHistory = () => {
 
           <Title level={5}>Scan Journey</Title>
 
-          {scans.length ? (
+          {journeyEvents.length ? (
             <Table
               size="small"
               rowKey="id"
               pagination={false}
-              dataSource={scans}
+              dataSource={journeyEvents}
               columns={[
-                {
-                  title: "Stage",
-                  dataIndex: "stage_name",
-                  key: "stage_name",
+              {
+                title: "Event",
+                key: "event",
+                render: (_, row) =>
+                  row.event_type === "QUALITY"
+                    ? getJourneyStatus(row.event_status).label
+                    : row.stage_name || `Stage ${row.stage_id ?? "-"}`,
+              },
+              {
+                title: "Type",
+                dataIndex: "event_type",
+                key: "event_type",
+                render: (value) =>
+                    value === "QUALITY" ? (
+                      <Tag color="purple">Quality</Tag>
+                    ) : (
+                      <Tag color="blue">Production Scan</Tag>
+                    ),
                 },
                 {
-                  title: "Machine",
-                  dataIndex: "machine_code",
-                  key: "machine_code",
-                  render: (value) => value || "-",
+                  title: "Performed By",
+                  key: "performed_by",
+                  render: (_, row) =>
+                    row.event_type === "QUALITY"
+                      ? row.performed_by_name || row.performed_by_username || "-"
+                      : row.scanned_by_name || row.scanned_by || "-",
+                },
+                {
+                  title: "Machine / Station",
+                  key: "machine",
+                  render: (_, row) =>
+                    row.event_type === "QUALITY"
+                      ? row.rework_station_name || "-"
+                      : row.machine_code || "-",
                 },
                 {
                   title: "Status",
-                  dataIndex: "status",
                   key: "status",
-                  render: resultTag,
+                  render: (_, row) => resultTag(row.event_status),
                 },
                 {
-                  title: "Scanned At",
-                  dataIndex: "scanned_at",
-                  key: "scanned_at",
+                  title: "Reason / Remarks",
+                  key: "remarks",
+                  render: (_, row) => row.reason || row.remarks || "-",
+                },
+                {
+                  title: "Time",
+                  dataIndex: "event_time",
+                  key: "event_time",
                   render: formatDate,
                 },
               ]}
@@ -1476,30 +1887,14 @@ const ScanHistory = () => {
         </Card>
       )}
 
+      {!loading && mode === "serial" && orderOptions.length > 0 && !result &&
+        renderProductionOrderSelection()}
+
       {!loading && result && mode === "serial" &&
         renderSerialResult(result)}
 
       {!loading && result && mode === "box" &&
         renderBoxResult(result)}
-
-      {!loading && !result && !error && (
-        <Card style={panelStyle}>
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={
-              <Space direction="vertical" size={4}>
-                <Text strong>
-                  Search for a PCB or box
-                </Text>
-                <Text type="secondary">
-                  Enter a serial number to view its production journey,
-                  or a box code to trace all mapped PCBs.
-                </Text>
-              </Space>
-            }
-          />
-        </Card>
-      )}
 
       <div
         style={{
@@ -1512,7 +1907,7 @@ const ScanHistory = () => {
         }}
       >
         <Clock size={13} />
-          Results reflect the records currently returned by the SMES Server.
+          Results can vary based on the different data sources and configurations.
       </div>
     </div>
   );
