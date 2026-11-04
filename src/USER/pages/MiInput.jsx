@@ -1,4 +1,5 @@
-import React from "react";
+import { useState } from "react";
+import QualityActionsDrawer from "../components/QualityActionsDrawer";
 import { Row, Col } from "antd";
 import { useAuth } from "../../Authentication/context/AuthContext"; // adjust path if your folder depth differs
 
@@ -28,6 +29,8 @@ export default function MIInput() {
   const stageFlowApi = useStageFlow({ productId: productionForm.form.productId, user });
   const recentScansApi = useRecentScans({ user, productId: productionForm.form.productId,  productionOrderId: productionForm.form.productionOrderId, });
   const stageFlow = stageFlowApi.stageFlow;
+
+  const [qualityDrawerOpen, setQualityDrawerOpen] = useState(false);
 
 
 
@@ -85,6 +88,12 @@ export default function MIInput() {
         onEdit={productionForm.handleEdit}
         onSave={productionForm.handleSave}
         onCancel={productionForm.handleCancel}
+        onOpenQualityActions={() => setQualityDrawerOpen(true)}
+      />
+
+      <QualityActionsDrawer
+        open={qualityDrawerOpen}
+        onClose={() => setQualityDrawerOpen(false)}
       />
 
       <HeaderSummaryBar stationName={user?.stage?.name} selected={productionForm.selected} />

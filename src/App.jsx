@@ -13,6 +13,7 @@ import AdminLayout from "./ADMIN/layout/AdminLayout.jsx";
 import Dashboard from "./ADMIN/pages/Dashboard/dashboard.jsx";
 import Production from "./ADMIN/pages/Production/production.jsx";
 import Tracking from "./ADMIN/pages/Tracking/Tracking.jsx";
+import ReworkStations from "./ADMIN/pages/Masters/ReworkStations.jsx";
 import ProductStage from "./ADMIN/pages/Tracking/ProductStage.jsx";
 import CreateProductionOrderModal from "./ADMIN/pages/Tracking/ProductionOrder.jsx"; 
 import ScanStage from "./ADMIN/pages/Tracking/ScanStage.jsx";
@@ -92,6 +93,7 @@ function App() {
             <Route path="pd-fields" element={<ManagepdFields />} />
             <Route path="items" element={<ManageItems />} />
             <Route path="item-fields" element={<ManageItemFields />} />
+            <Route path="rework-stations" element={<ReworkStations />} />
           </Route>
           {/* Reports */}
           <Route path="reports" element={<Reports />} />

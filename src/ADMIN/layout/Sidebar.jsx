@@ -32,6 +32,7 @@ const menuConfig = [
       { key: "/admin/masters/categories", label: "Manage Category"},
       { key: "/admin/masters/products",label: "Manage Products"},
       { key: "/admin/masters/stages", label: "Manage Stages" },
+      { key: "/admin/masters/rework-stations", label: "Rework Stations" },
       // { key: "/admin/masters/items", label: "Manage Items" },
       // { key: "/admin/masters/item-fields",label: "Manage Item Field"},
       // { key: "/admin/masters/pd-fields",label: "Manage Pd Field"},
