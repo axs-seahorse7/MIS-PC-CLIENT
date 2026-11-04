@@ -37,6 +37,8 @@ import PackegingRuleManager from "./ADMIN/pages/Tracking/PackegingRuleManager.js
 import Reports from "./ADMIN/pages/Reports/reports.jsx";
 import Settings from "./ADMIN/pages/Settings/settings.jsx";
 
+import QualityControl from "./ADMIN/pages/Quality/QualityControl.jsx";
+
 function App() {
 
 
@@ -82,6 +84,7 @@ function App() {
           </Route>
           {/* Users */}
           <Route path="users" element={<Users />} />
+          <Route path="quality" element={<QualityControl />} />
           {/* Masters */}
           <Route path="masters" element={<Masters />}>
             <Route path="lines" element={<ManageLines />} />

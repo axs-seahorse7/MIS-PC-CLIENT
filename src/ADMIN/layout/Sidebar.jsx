@@ -7,6 +7,7 @@ import {
   FileText,
   Settings,
   LogOut,
+  ShieldCheck,
 } from "lucide-react";
 
 import { Menu } from "antd";
@@ -40,6 +41,11 @@ const menuConfig = [
       // { key: "/admin/masters/models", label: "Manage Models" },
       // { key: "/admin/masters/qr-master", label: "Manage QR" },
     ],
+  },
+  {
+    key: "/admin/quality",
+    icon: ShieldCheck,
+    label: "Quality Control",
   },
   { key: "/admin/users", icon: Users, label: "Users" },
   { key: "/admin/reports", icon: FileText, label: "Reports" },
